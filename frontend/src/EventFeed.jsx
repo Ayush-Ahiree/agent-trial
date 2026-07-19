@@ -53,7 +53,7 @@ export default function EventFeed({ wsUrl = "ws://localhost:8765" }) {
     <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%", background: T.page, color: T.ink, overflow: "hidden", fontFamily: T.font }}>
       <div style={{ padding: "10px 16px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: sessions.length ? 10 : 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: 0.2 }}>Event Feed</div>
+          <div style={{ fontSize: 16, fontWeight: 500, letterSpacing: 0.1, fontFamily: T.fontSerif }}>Event Feed</div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.inkMuted }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: connected ? T.good : T.inkMuted, display: "inline-block" }} />
             {connected ? "Connected" : "Disconnected"}
@@ -141,7 +141,7 @@ function PillButton({ label, color, onClick }) {
       onMouseLeave={() => setHover(false)}
       style={{
         background: hover ? color : `${color}22`,
-        color: hover ? "#0d0d0d" : color,
+        color: hover ? T.onAccent : color,
         border: `1px solid ${color}`,
         borderRadius: 999,
         padding: "6px 14px",
@@ -178,7 +178,7 @@ function SessionCard({ session, expanded, onToggle, expandedEventKey, onToggleEv
   const orderedEvents = [...session.events].sort((a, b) => (a.ts || 0) - (b.ts || 0));
 
   return (
-    <div style={{ marginBottom: 8, borderRadius: 12, overflow: "hidden", border: `1px solid ${status.color}40`, background: T.surface, boxShadow: "0 1px 3px rgba(0,0,0,0.4)" }}>
+    <div style={{ marginBottom: 8, borderRadius: 12, overflow: "hidden", border: `1px solid ${status.color}40`, background: T.surface, boxShadow: "0 1px 3px rgba(23,20,14,0.08)" }}>
       <div
         onClick={onToggle}
         style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", cursor: "pointer", gap: 10, borderLeft: `3px solid ${status.color}` }}

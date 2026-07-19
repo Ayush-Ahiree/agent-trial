@@ -166,6 +166,22 @@ hook already gets this for free — `hook_server.py` returning
 dialog, no extra code needed on that path (verified via curl: PII-tainted
 `WebFetch` correctly returns `"ask"`).
 
+## Visual design: thebillow.ai
+
+Panel chrome follows thebillow.ai's actual shipped fonts/palette (pulled
+from its live CSS, not guessed): **Geist** + **Geist Mono** for UI/data
+text, **Newsreader** (serif) reserved for headline moments only — the
+wordmark, section titles — the same restrained way Billow uses it, not
+sprinkled onto data that needs to stay legible. Warm "paper" surface
+(`#faf9f7`) and ink (`#17140e`) replace the earlier near-black dashboard
+theme; deep forest green (`#025841`) is the brand accent. All in
+`theme.jsx`. The validated status palette (good/warning/serious/
+critical) didn't change — those four hex values are documented to work
+on both light and dark surfaces.
+
+Fonts load via Google Fonts in `index.html`; verified actually loaded
+(not silently falling back) via `document.fonts`.
+
 ## Event Feed (default panel view)
 
 `EventFeed.jsx` replaced the force-graph as the default view — a

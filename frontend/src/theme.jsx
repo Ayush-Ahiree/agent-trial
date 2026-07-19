@@ -3,25 +3,44 @@ import React from "react";
 /**
  * Shared design tokens + icons + human-readable label maps, used by both
  * EventFeed.jsx and AgentTrail.jsx so the two tabs read as one system
- * instead of drifting apart. Status palette validated via the dataviz
- * skill's six-checks validator against the dark surface below; every
- * status pairs an icon with a label, never color alone.
+ * instead of drifting apart.
+ *
+ * Palette + type follows thebillow.ai: a warm "paper" surface (not a
+ * dark hacker-dashboard theme), Geist for UI/body text, Newsreader (a
+ * serif) reserved for headline/editorial moments -- section titles,
+ * the wordmark, session headlines -- the same way Billow uses it, not
+ * sprinkled everywhere data/numbers need to stay legible.
+ *
+ * Status palette (good/warning/serious/critical) validated via the
+ * dataviz skill's six-checks validator -- the same four hex values are
+ * documented to work on BOTH light and dark surfaces (icon+label
+ * pairing is the mitigation for the two that sit under 3:1 contrast on
+ * a light surface), so these didn't change when the chrome went light.
  */
 
 export const T = {
-  page: "#0d0d0d",
-  surface: "#1a1a19",
-  surfaceRaised: "#212120",
-  border: "rgba(255,255,255,0.10)",
-  ink: "#ffffff",
-  inkSecondary: "#c3c2b7",
-  inkMuted: "#898781",
-  gridline: "#2c2c2a",
+  page: "#faf9f7",
+  surface: "#ffffff",
+  surfaceRaised: "#f2f0ea",
+  border: "#17140e14",
+  borderStrong: "#17140e3d",
+  ink: "#17140e",
+  inkSecondary: "#2e2a22",
+  inkMuted: "#8a8578",
+  gridline: "#e5e2d9",
+  onAccent: "#ffffff",
+  accent: "#025841",
+  accentSoft: "#e6f2ed",
+  cool: "#a9d6e5",
+  coolInk: "#2f6f82",
+  coolSoft: "#e4f1f6",
   good: "#0ca30c",
   warning: "#fab219",
   serious: "#ec835a",
   critical: "#d03b3b",
-  font: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+  font: '"Geist", system-ui, -apple-system, "Segoe UI", sans-serif',
+  fontMono: '"Geist Mono", ui-monospace, "SF Mono", Menlo, monospace',
+  fontSerif: '"Newsreader", Georgia, serif',
 };
 
 export const STATUS = {

@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { T, STATUS, TAG_LABELS, humanReason } from "./theme.jsx";
 import { buildTrail, layoutSerpentine } from "./pathLayout.js";
 
-const START_COLOR = "#818cf8";
+const START_COLOR = T.coolInk;
 const WIDTH = 300;
 
 /**
@@ -52,7 +52,7 @@ export default function MiniPathGraph({ session }) {
         {links.map((l, i) => {
           const s = byId[l.source];
           const t = byId[l.target];
-          return <line key={i} x1={s.fx} y1={s.fy} x2={t.fx} y2={t.fy} stroke="rgba(255,255,255,0.2)" strokeWidth={1.5} />;
+          return <line key={i} x1={s.fx} y1={s.fy} x2={t.fx} y2={t.fy} stroke="rgba(23,20,14,0.2)" strokeWidth={1.5} />;
         })}
         {nodes.map((n) => {
           const isStart = n.isStart;
@@ -65,7 +65,7 @@ export default function MiniPathGraph({ session }) {
               {isSelected && <circle cx={n.fx} cy={n.fy} r={r + 3} fill="none" stroke={T.ink} strokeWidth={1.2} />}
               <circle cx={n.fx} cy={n.fy} r={r} fill={color} />
               {!isStart && (
-                <text x={n.fx} y={n.fy + 0.5} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={700} fill={T.page}>
+                <text x={n.fx} y={n.fy + 0.5} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={700} fill={T.onAccent}>
                   {n.step}
                 </text>
               )}

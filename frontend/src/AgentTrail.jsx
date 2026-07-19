@@ -26,7 +26,7 @@ import { buildTrail, layoutSerpentine } from "./pathLayout.js";
  * "Follow live" again.
  */
 
-const START_COLOR = "#818cf8";
+const START_COLOR = T.coolInk;
 
 export default function AgentTrail({ wsUrl = "ws://localhost:8765" }) {
   const { events, connected } = useEventStream(wsUrl);
@@ -98,7 +98,7 @@ export default function AgentTrail({ wsUrl = "ws://localhost:8765" }) {
     ctx.fill();
 
     if (!isStart) {
-      ctx.fillStyle = T.page;
+      ctx.fillStyle = T.onAccent;
       ctx.font = `700 ${9 / globalScale}px ${T.font}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -128,7 +128,7 @@ export default function AgentTrail({ wsUrl = "ws://localhost:8765" }) {
           graphData={{ nodes, links }}
           nodeCanvasObject={nodeCanvasObject}
           nodeLabel={() => ""}
-          linkColor={() => "rgba(255,255,255,0.18)"}
+          linkColor={() => "rgba(23,20,14,0.18)"}
           linkWidth={1.5}
           linkDirectionalParticles={2}
           linkDirectionalParticleWidth={2.5}
@@ -147,7 +147,7 @@ export default function AgentTrail({ wsUrl = "ws://localhost:8765" }) {
       <div style={{ flex: "1 0 300px", minWidth: 0, maxWidth: 360, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Live Path</div>
+            <div style={{ fontSize: 15, fontWeight: 500, fontFamily: T.fontSerif }}>Live Path</div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.inkMuted }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: connected ? T.good : T.inkMuted, display: "inline-block" }} />
               {connected ? "Connected" : "Disconnected"}

@@ -1,0 +1,74 @@
+import { useState, useEffect, useCallback } from "react";
+import { eventIdentity } from "./sessionUtils.js";
+
+/**
+ * Shared WS connection + localStorage persistence, used by both
+ * EventFeed.jsx and AgentTrail.jsx -- they're two views over the exact
+ * same event stream, not two independent data sources.
+ */
+
+export const RELAY_HTTP_BASE = "http://localhost:8766";
+export const MAX_EVENTS = 150;
+const STORAGE_KEY = "agenttrail_events_v1";
+
+function loadStoredEvents() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function useEventStream(wsUrl) {
+  const [events, setEvents] = useState(loadStoredEvents);
+  const [pending, setPending] = useState([]);
+  const [connected, setConnected] = useState(false);
+
+  // persist to localStorage so a page refresh (or the relay restarting)
+  // doesn't wipe history -- the relay's own replay-on-connect buffer
+  // covers a fresh tab/reconnect; this covers surviving a reload without
+  // even needing that round trip
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
+    } catch {
+      // storage full/unavailable -- history just won't persist, not fatal
+    }
+  }, [events]);
+
+  useEffect(() => {
+    const ws = new WebSocket(wsUrl);
+    ws.onopen = () => setConnected(true);
+    ws.onclose = () => setConnected(false);
+    ws.onerror = () => setConnected(false);
+    ws.onmessage = (msg) => {
+      const event = JSON.parse(msg.data);
+      if (event.type === "confirm_request") {
+        setPending((prev) => [...prev, event]);
+        return;
+      }
+      if (event.type === "confirm_resolution") {
+        setPending((prev) => prev.filter((p) => !(p.tool === event.tool && p.target === event.target)));
+      }
+      const key = eventIdentity(event);
+      setEvents((prev) => {
+        if (prev.some((e) => e._key === key)) return prev; // relay's replay buffer resent something localStorage already had
+        return [{ ...event, _key: key }, ...prev].slice(0, MAX_EVENTS);
+      });
+    };
+    return () => ws.close();
+  }, [wsUrl]);
+
+  const resolveConfirm = useCallback((item, approved) => {
+    setPending((prev) => prev.filter((p) => p.id !== item.id));
+    fetch(`${RELAY_HTTP_BASE}/confirm-response`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: item.id, approved }),
+    }).catch(() => {});
+  }, []);
+
+  return { events, pending, connected, resolveConfirm };
+}

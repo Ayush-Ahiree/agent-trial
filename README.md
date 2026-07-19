@@ -171,13 +171,37 @@ dialog, no extra code needed on that path (verified via curl: PII-tainted
 `EventFeed.jsx` replaced the force-graph as the default view — a
 security-review workflow wants "what happened, in order, and does
 anything need my attention," which a chronological, color-coded log
-communicates far more directly than a node graph. The graph
-(`AgentTrail.jsx`) is still there under the **Graph** tab if you want it
-for demo flair; nothing about it changed.
+communicates far more directly than a node graph.
 
 Click any row to expand it (▸/▾ indicator) and see full details: session
 id, risk score, ISO timestamp, and the raw event JSON — not just the
 one-line summary.
+
+`theme.jsx` (design tokens + icons), `sessionUtils.js` (session grouping),
+and `useEventStream.js` (WS connection + localStorage) are shared between
+`EventFeed.jsx` and `AgentTrail.jsx` so the two tabs read as one system,
+not two components that quietly drift apart.
+
+## Graph view: a real path, not a hub-and-spoke
+
+`AgentTrail.jsx` used to link every action straight back to one center
+"AGENT" node — a star graph of everything touched, not a path (no edge
+from step 1 to step 2 to step 3, so you couldn't trace what happened
+after what). Rewritten so each session is an actual chain in call order,
+with the existing particle animation now flowing along a real trail
+instead of radiating from a hub.
+
+- Auto-follows the most recently active session by default — ask Claude
+  Code to do something and the view picks up the new session
+  automatically. Click an older session in the sidebar to pin the view
+  there; a "● Follow live session" button reappears to unpin.
+- Each node shows its step number, colored by the same validated status
+  palette as the Feed (with the pulsing ring for a block, same as
+  before); click one for the detail panel (tool, target, human-readable
+  reason, tags, risk score).
+- Verified live: a 5-step sequence (2 reads, a shell command, a blocked
+  secrets-path read, another shell command) rendered as a real chain,
+  in order, with the block's pulsing red ring and correct step numbers.
 
 ## Feature F: Claude Code HTTP hook integration
 

@@ -1,110 +1,117 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
+import { T, STATUS, SOURCE_META, TAG_LABELS, humanReason, eventSeverity } from "./theme.jsx";
+import { groupBySession, timeAgo } from "./sessionUtils.js";
+import { useEventStream } from "./useEventStream.js";
 
 /**
- * Agent Trail panel — live "Uber-map"-style view of everywhere the agent
- * has gone: each tool call becomes a node, each call an animated edge
- * from the Agent center node. Trust level drives node color; a blocked
- * action pulses red. Data is pushed live over the ws_relay WebSocket —
- * no polling, no dependency on SigNoz's own query latency.
+ * Live path-tracing view. This used to be a hub-and-spoke star (every
+ * action linked straight back to one center "AGENT" node) -- that's not
+ * a path, it's just "everything touched," with no way to tell what
+ * happened after what. Now each session is an actual chain: step 1 -> 2
+ * -> 3 in call order, so you can ask Claude Code to "fix the taskbar
+ * issue" and watch the trail extend live, file by file, tool by tool,
+ * until it's done.
+ *
+ * Defaults to auto-following the most recently active session (so a
+ * brand-new task takes over the view the moment it starts); clicking an
+ * older session in the sidebar pins the view there until you click
+ * "Follow live" again.
  */
 
-const TRUST_COLOR = {
-  allow: "#22c55e",          // green
-  pending_confirm: "#eab308", // yellow
-  block: "#ef4444",          // red
-};
+const START_COLOR = "#818cf8";
 
-const AGENT_NODE_ID = "__agent__";
+function buildTrail(session) {
+  const toolCalls = session
+    ? [...session.events].filter((e) => e.type === "tool_call").sort((a, b) => (a.ts || 0) - (b.ts || 0))
+    : [];
+
+  const nodes = [{ id: "start", label: session ? SOURCE_META[session.source].label : "Start", isStart: true }];
+  const links = [];
+  toolCalls.forEach((event, i) => {
+    const nodeId = `step-${i}`;
+    nodes.push({
+      id: nodeId,
+      label: shortLabel(event),
+      event,
+      severity: eventSeverity(event),
+      step: i + 1,
+    });
+    links.push({ source: i === 0 ? "start" : `step-${i - 1}`, target: nodeId });
+  });
+  return { nodes, links };
+}
+
+function shortLabel(event) {
+  const target = event.target || "";
+  if (event.tool === "call_api") {
+    try {
+      return new URL(target).hostname;
+    } catch {
+      return target.slice(0, 24);
+    }
+  }
+  const parts = target.split("/");
+  return (parts[parts.length - 1] || target).slice(0, 24);
+}
 
 export default function AgentTrail({ wsUrl = "ws://localhost:8765" }) {
-  const [graphData, setGraphData] = useState({
-    nodes: [{ id: AGENT_NODE_ID, label: "Agent", isCenter: true }],
-    links: [],
-  });
-  const [selected, setSelected] = useState(null);
-  const [log, setLog] = useState([]);
+  const { events, connected } = useEventStream(wsUrl);
+  const [pinnedSession, setPinnedSession] = useState(null);
+  const [selectedNode, setSelectedNode] = useState(null);
   const fgRef = useRef();
-  const graphWrapRef = useRef();
-  const [graphSize, setGraphSize] = useState({ width: 0, height: 0 });
+  const wrapRef = useRef();
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  const sessions = useMemo(() => groupBySession(events), [events]);
+  const activeSessionId = pinnedSession || (sessions[0] && sessions[0].sessionId);
+  const activeSession = sessions.find((s) => s.sessionId === activeSessionId) || null;
+  const following = !pinnedSession;
+
+  const { nodes, links } = useMemo(() => buildTrail(activeSession), [activeSession]);
 
   useEffect(() => {
-    const el = graphWrapRef.current;
+    const el = wrapRef.current;
     if (!el) return;
     const observer = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
-      setGraphSize({ width, height });
+      setSize({ width, height });
     });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
-  const addToolCallEvent = useCallback((event) => {
-    setGraphData((prev) => {
-      const nodeId = `${event.tool}:${event.target}`;
-      const existing = prev.nodes.find((n) => n.id === nodeId);
-
-      const node = existing || {
-        id: nodeId,
-        label: event.target,
-        tool: event.tool,
-      };
-      node.decision = event.decision;
-      node.tags = event.tags;
-      node.riskScore = event.risk_score;
-      node.lastSeen = event.ts;
-      node.pulse = event.decision === "block" ? true : false;
-
-      const nodes = existing
-        ? prev.nodes.map((n) => (n.id === nodeId ? node : n))
-        : [...prev.nodes, node];
-
-      const linkExists = prev.links.some(
-        (l) => l.source === AGENT_NODE_ID && l.target === nodeId
-      );
-      const links = linkExists
-        ? prev.links
-        : [...prev.links, { source: AGENT_NODE_ID, target: nodeId }];
-
-      return { nodes, links };
-    });
-
-    setLog((prev) => [
-      {
-        id: `${event.ts}-${event.tool}`,
-        tool: event.tool,
-        target: event.target,
-        decision: event.decision,
-        tags: event.tags,
-        ts: event.ts,
-      },
-      ...prev,
-    ].slice(0, 50));
-  }, []);
-
+  // keep the whole trail in frame as it grows
   useEffect(() => {
-    const ws = new WebSocket(wsUrl);
-    ws.onmessage = (msg) => {
-      const event = JSON.parse(msg.data);
-      if (event.type === "tool_call") {
-        addToolCallEvent(event);
-      }
-      // taint_update events could tint existing nodes; kept minimal for MVP
-    };
-    ws.onerror = () => console.warn("Agent Trail: relay not reachable yet");
-    return () => ws.close();
-  }, [wsUrl, addToolCallEvent]);
+    if (fgRef.current && nodes.length > 1) {
+      const t = setTimeout(() => fgRef.current.zoomToFit(400, 70), 250);
+      return () => clearTimeout(t);
+    }
+  }, [nodes.length]);
+
+  // deselect a node that no longer exists (switched session)
+  useEffect(() => {
+    if (selectedNode && !nodes.some((n) => n.id === selectedNode.id)) setSelectedNode(null);
+  }, [nodes, selectedNode]);
 
   const nodeCanvasObject = (node, ctx, globalScale) => {
-    const isCenter = node.id === AGENT_NODE_ID;
-    const color = isCenter ? "#818cf8" : TRUST_COLOR[node.decision] || "#94a3b8";
-    const radius = isCenter ? 10 : 6;
+    const isStart = node.id === "start";
+    const color = isStart ? START_COLOR : STATUS[node.severity].color;
+    const radius = isStart ? 8 : 9;
+    const isSelected = selectedNode && selectedNode.id === node.id;
 
-    if (node.pulse) {
+    if (!isStart && node.severity === "critical") {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius + 5, 0, 2 * Math.PI);
+      ctx.strokeStyle = T.critical;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    if (isSelected) {
       ctx.beginPath();
       ctx.arc(node.x, node.y, radius + 4, 0, 2 * Math.PI);
-      ctx.strokeStyle = "#ef4444";
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = T.ink;
+      ctx.lineWidth = 1.5;
       ctx.stroke();
     }
 
@@ -113,75 +120,160 @@ export default function AgentTrail({ wsUrl = "ws://localhost:8765" }) {
     ctx.fillStyle = color;
     ctx.fill();
 
-    const label = isCenter ? "AGENT" : node.label;
-    const fontSize = 10 / globalScale;
-    ctx.font = `${fontSize}px sans-serif`;
-    ctx.fillStyle = "#e2e8f0";
-    ctx.fillText(label.slice(0, 28), node.x + radius + 2, node.y + 3);
+    if (!isStart) {
+      ctx.fillStyle = T.page;
+      ctx.font = `700 ${9 / globalScale}px ${T.font}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(node.step), node.x, node.y + 0.5);
+    }
+
+    const fontSize = 10.5 / globalScale;
+    ctx.font = `${fontSize}px ${T.font}`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = T.inkSecondary;
+    ctx.fillText(node.label, node.x + radius + 5, node.y);
   };
 
   return (
-    <div style={{ display: "flex", height: "100%", width: "100%", background: "#0f172a", color: "#e2e8f0", overflow: "hidden" }}>
-      <div ref={graphWrapRef} style={{ flex: "2 1 0%", minWidth: 0, position: "relative", overflow: "hidden" }}>
+    <div style={{ display: "flex", height: "100%", width: "100%", background: T.page, color: T.ink, overflow: "hidden", fontFamily: T.font }}>
+      <div ref={wrapRef} style={{ flex: "2 1 0%", minWidth: 0, position: "relative", overflow: "hidden" }}>
+        {nodes.length <= 1 && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: T.inkMuted, textAlign: "center", padding: 20 }}>
+            Waiting for a session to trace — ask Claude Code to do something, or run the toy agent.
+          </div>
+        )}
         <ForceGraph2D
           ref={fgRef}
-          width={graphSize.width || undefined}
-          height={graphSize.height || undefined}
-          graphData={graphData}
+          width={size.width || undefined}
+          height={size.height || undefined}
+          graphData={{ nodes, links }}
+          dagMode="td"
+          dagLevelDistance={70}
           nodeCanvasObject={nodeCanvasObject}
-          linkColor={() => "rgba(148,163,184,0.4)"}
+          nodeLabel={() => ""}
+          linkColor={() => "rgba(255,255,255,0.18)"}
+          linkWidth={1.5}
           linkDirectionalParticles={2}
+          linkDirectionalParticleWidth={2.5}
           linkDirectionalParticleSpeed={0.006}
-          onNodeClick={(node) => setSelected(node)}
-          backgroundColor="#0f172a"
+          linkDirectionalParticleColor={(link) => {
+            const t = link.target;
+            const severity = typeof t === "object" ? t.severity : null;
+            return severity ? STATUS[severity].color : T.good;
+          }}
+          onNodeClick={(node) => (node.event ? setSelectedNode(node) : setSelectedNode(null))}
+          backgroundColor={T.page}
+          cooldownTicks={100}
         />
       </div>
 
-      <div style={{ flex: "1 0 280px", minWidth: 0, maxWidth: 360, borderLeft: "1px solid #1e293b", padding: 12, overflowY: "auto" }}>
-        <h3 style={{ margin: "0 0 8px", fontSize: 14 }}>Agent Trail</h3>
-        <div style={{ fontSize: 11, marginBottom: 12, opacity: 0.7 }}>
-          <Legend color={TRUST_COLOR.allow} label="Allowed" />
-          <Legend color={TRUST_COLOR.pending_confirm} label="Needs confirmation" />
-          <Legend color={TRUST_COLOR.block} label="Blocked" />
+      <div style={{ flex: "1 0 300px", minWidth: 0, maxWidth: 360, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Live Path</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.inkMuted }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: connected ? T.good : T.inkMuted, display: "inline-block" }} />
+              {connected ? "Connected" : "Disconnected"}
+            </div>
+          </div>
+          {!following && (
+            <button
+              onClick={() => setPinnedSession(null)}
+              style={{ marginTop: 8, fontSize: 11, background: `${T.good}22`, color: T.good, border: `1px solid ${T.good}`, borderRadius: 999, padding: "4px 10px", cursor: "pointer" }}
+            >
+              ● Follow live session
+            </button>
+          )}
         </div>
 
-        {selected && selected.id !== AGENT_NODE_ID && (
-          <div style={{ background: "#1e293b", padding: 8, borderRadius: 6, marginBottom: 12, fontSize: 12 }}>
-            <div><strong>{selected.tool}</strong></div>
-            <div style={{ wordBreak: "break-all", opacity: 0.8 }}>{selected.label}</div>
-            <div>decision: {selected.decision}</div>
-            <div>risk score: {selected.riskScore}</div>
-            <div>tags: {(selected.tags || []).join(", ") || "none"}</div>
-          </div>
-        )}
-
-        <div style={{ fontSize: 11 }}>
-          {log.map((entry) => (
-            <div
-              key={entry.id}
-              style={{
-                padding: "4px 0",
-                borderBottom: "1px solid #1e293b",
-                color: TRUST_COLOR[entry.decision] || "#e2e8f0",
-              }}
-            >
-              [{entry.tool}] {entry.target.slice(0, 40)}
-              {entry.tags && entry.tags.length > 0 && (
-                <span style={{ opacity: 0.7 }}> · {entry.tags.join(",")}</span>
-              )}
-            </div>
+        <div style={{ padding: 10, borderBottom: `1px solid ${T.border}`, maxHeight: 220, overflowY: "auto" }}>
+          <div style={{ fontSize: 11, color: T.inkMuted, marginBottom: 6 }}>Sessions</div>
+          {sessions.length === 0 && <div style={{ fontSize: 12, opacity: 0.5 }}>No sessions yet.</div>}
+          {sessions.map((s, i) => (
+            <SessionPill
+              key={s.sessionId}
+              session={s}
+              active={s.sessionId === activeSessionId}
+              isLive={i === 0 && following}
+              onClick={() => setPinnedSession(i === 0 ? null : s.sessionId)}
+            />
           ))}
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: 12 }}>
+          {selectedNode && selectedNode.event ? (
+            <NodeDetail event={selectedNode.event} step={selectedNode.step} />
+          ) : (
+            <div style={{ fontSize: 12, opacity: 0.5, textAlign: "center", marginTop: 20 }}>Click a step in the path for details.</div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function Legend({ color, label }) {
+function SessionPill({ session, active, isLive, onClick }) {
+  const status = STATUS[session.severity];
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-      <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, display: "inline-block" }} />
-      {label}
+    <div
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        padding: "6px 8px",
+        marginBottom: 4,
+        borderRadius: 8,
+        background: active ? T.surfaceRaised : "transparent",
+        border: `1px solid ${active ? status.color + "55" : "transparent"}`,
+        cursor: "pointer",
+        fontSize: 12,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: status.color, flexShrink: 0 }} />
+        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{session.headline}</span>
+      </div>
+      {isLive && (
+        <span style={{ fontSize: 9, color: T.good, fontWeight: 700, flexShrink: 0, letterSpacing: 0.3 }}>● LIVE</span>
+      )}
+    </div>
+  );
+}
+
+function NodeDetail({ event, step }) {
+  const status = STATUS[eventSeverity(event)];
+  const visibleTags = (event.tags || []).filter((t) => TAG_LABELS[t]);
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+        <span style={{ fontSize: 11, color: T.inkMuted }}>Step {step}</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, padding: "1px 7px 1px 5px", borderRadius: 999, background: `${status.color}1f`, color: status.color, fontWeight: 600 }}>
+          <status.Icon size={10} color={status.color} />
+          {status.label}
+        </span>
+      </div>
+      <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>{event.tool}</div>
+      <div style={{ fontSize: 12, opacity: 0.8, wordBreak: "break-all", marginBottom: 8 }}>{event.target}</div>
+      {event.reasons && event.reasons.length > 0 && (
+        <div style={{ fontSize: 11.5, opacity: 0.6, marginBottom: 8 }}>{event.reasons.map(humanReason).join(", ")}</div>
+      )}
+      {visibleTags.length > 0 && (
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+          {visibleTags.map((t) => (
+            <span key={t} style={{ fontSize: 10, padding: "1px 7px", borderRadius: 999, background: T.surfaceRaised, border: `1px solid ${T.border}`, color: T.inkSecondary }}>
+              {TAG_LABELS[t]}
+            </span>
+          ))}
+        </div>
+      )}
+      {event.risk_score !== undefined && (
+        <div style={{ fontSize: 11, opacity: 0.6 }}>risk score: {event.risk_score}</div>
+      )}
+      <div style={{ fontSize: 11, opacity: 0.5, marginTop: 4 }}>{timeAgo(event.ts)}</div>
     </div>
   );
 }

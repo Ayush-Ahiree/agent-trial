@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { T, STATUS, TOOL_META, SOURCE_META, TAG_LABELS, humanReason, eventSeverity, IconChevron, IconAlert } from "./theme.jsx";
 import { groupBySession, timeAgo } from "./sessionUtils.js";
 import { useEventStream } from "./useEventStream.js";
+import MiniPathGraph from "./MiniPathGraph.jsx";
 
 /**
  * Chronological event feed -- the default AgentTrail view. Replaces the
@@ -194,10 +195,16 @@ function SessionCard({ session, expanded, onToggle, expandedEventKey, onToggleEv
         </div>
       </div>
       {expanded && (
-        <div style={{ padding: "4px 10px 10px", borderTop: `1px solid ${T.border}` }}>
-          {orderedEvents.map((event) => (
-            <EventRow key={event._key} event={event} expanded={expandedEventKey === event._key} onToggle={() => onToggleEvent(event._key)} />
-          ))}
+        <div style={{ display: "flex", gap: 0, borderTop: `1px solid ${T.border}` }}>
+          <div style={{ flex: "1 1 0%", minWidth: 0, padding: "4px 10px 10px" }}>
+            {orderedEvents.map((event) => (
+              <EventRow key={event._key} event={event} expanded={expandedEventKey === event._key} onToggle={() => onToggleEvent(event._key)} />
+            ))}
+          </div>
+          <div style={{ flex: "0 0 300px", borderLeft: `1px solid ${T.border}`, padding: 10, background: T.page }}>
+            <div style={{ fontSize: 10.5, color: T.inkMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>Path</div>
+            <MiniPathGraph session={session} />
+          </div>
         </div>
       )}
     </div>

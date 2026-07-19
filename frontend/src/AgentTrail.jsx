@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
-import { T, STATUS, SOURCE_META, TAG_LABELS, humanReason, eventSeverity } from "./theme.jsx";
+import { T, STATUS, TAG_LABELS, humanReason, eventSeverity } from "./theme.jsx";
 import { groupBySession, timeAgo } from "./sessionUtils.js";
 import { useEventStream } from "./useEventStream.js";
+import { buildTrail, layoutSerpentine } from "./pathLayout.js";
 
 /**
  * Live path-tracing view. This used to be a hub-and-spoke star (every
@@ -13,6 +14,12 @@ import { useEventStream } from "./useEventStream.js";
  * issue" and watch the trail extend live, file by file, tool by tool,
  * until it's done.
  *
+ * A straight line (top-down or left-right) runs off the edge of the
+ * view once a session racks up more than a handful of steps, so
+ * positions are laid out in a serpentine ("S"/boustrophedon) grid sized
+ * to the actual container width instead (see pathLayout.js) -- long
+ * sessions wrap back and forth and stay in frame.
+ *
  * Defaults to auto-following the most recently active session (so a
  * brand-new task takes over the view the moment it starts); clicking an
  * older session in the sidebar pins the view there until you click
@@ -20,40 +27,6 @@ import { useEventStream } from "./useEventStream.js";
  */
 
 const START_COLOR = "#818cf8";
-
-function buildTrail(session) {
-  const toolCalls = session
-    ? [...session.events].filter((e) => e.type === "tool_call").sort((a, b) => (a.ts || 0) - (b.ts || 0))
-    : [];
-
-  const nodes = [{ id: "start", label: session ? SOURCE_META[session.source].label : "Start", isStart: true }];
-  const links = [];
-  toolCalls.forEach((event, i) => {
-    const nodeId = `step-${i}`;
-    nodes.push({
-      id: nodeId,
-      label: shortLabel(event),
-      event,
-      severity: eventSeverity(event),
-      step: i + 1,
-    });
-    links.push({ source: i === 0 ? "start" : `step-${i - 1}`, target: nodeId });
-  });
-  return { nodes, links };
-}
-
-function shortLabel(event) {
-  const target = event.target || "";
-  if (event.tool === "call_api") {
-    try {
-      return new URL(target).hostname;
-    } catch {
-      return target.slice(0, 24);
-    }
-  }
-  const parts = target.split("/");
-  return (parts[parts.length - 1] || target).slice(0, 24);
-}
 
 export default function AgentTrail({ wsUrl = "ws://localhost:8765" }) {
   const { events, connected } = useEventStream(wsUrl);
@@ -68,7 +41,11 @@ export default function AgentTrail({ wsUrl = "ws://localhost:8765" }) {
   const activeSession = sessions.find((s) => s.sessionId === activeSessionId) || null;
   const following = !pinnedSession;
 
-  const { nodes, links } = useMemo(() => buildTrail(activeSession), [activeSession]);
+  const { nodes, links } = useMemo(() => {
+    const trail = buildTrail(activeSession);
+    layoutSerpentine(trail.nodes, size.width || 900, { colSpacing: 110, rowSpacing: 90 });
+    return trail;
+  }, [activeSession, size.width]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -84,10 +61,10 @@ export default function AgentTrail({ wsUrl = "ws://localhost:8765" }) {
   // keep the whole trail in frame as it grows
   useEffect(() => {
     if (fgRef.current && nodes.length > 1) {
-      const t = setTimeout(() => fgRef.current.zoomToFit(400, 70), 250);
+      const t = setTimeout(() => fgRef.current.zoomToFit(400, 40), 250);
       return () => clearTimeout(t);
     }
-  }, [nodes.length]);
+  }, [nodes.length, size.width]);
 
   // deselect a node that no longer exists (switched session)
   useEffect(() => {
@@ -149,8 +126,6 @@ export default function AgentTrail({ wsUrl = "ws://localhost:8765" }) {
           width={size.width || undefined}
           height={size.height || undefined}
           graphData={{ nodes, links }}
-          dagMode="td"
-          dagLevelDistance={70}
           nodeCanvasObject={nodeCanvasObject}
           nodeLabel={() => ""}
           linkColor={() => "rgba(255,255,255,0.18)"}

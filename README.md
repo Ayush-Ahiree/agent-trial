@@ -203,6 +203,19 @@ instead of radiating from a hub.
   secrets-path read, another shell command) rendered as a real chain,
   in order, with the block's pulsing red ring and correct step numbers.
 
+Positions are laid out in a serpentine ("S") grid sized to the actual
+container width (`pathLayout.js`'s `layoutSerpentine`) rather than a
+straight line that runs off-screen once a session racks up more than a
+handful of steps: row 0 left-to-right, row 1 wraps right-to-left, and so
+on. Verified with a 12-step session — wraps cleanly at 8 steps per row
+and stays in frame.
+
+The same layout also powers `MiniPathGraph.jsx`, a lightweight SVG path
+(no react-force-graph instance, since several can be mounted if more
+than one Feed card is expanded) embedded in the **Feed** tab's expanded
+session cards — the path for that specific session shows on the side,
+so you don't have to switch to the Graph tab to see it.
+
 ## Feature F: Claude Code HTTP hook integration
 
 The toy agent and Claude Code are two front-ends on the same backend

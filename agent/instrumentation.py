@@ -79,6 +79,19 @@ def _session_parent_context(ctx: "TaintContext"):
     return set_span_in_context(NonRecordingSpan(ctx.root_span_context))
 
 
+def _trace_id_hex(ctx: "TaintContext") -> str:
+    """32-char hex trace ID for this session's shared trace, in the form
+    SigNoz's own trace-detail URL expects. Call after
+    _session_parent_context(ctx) has run at least once (root_span_context
+    is lazily created there) -- every broadcast site below already opens
+    a span via that call first, so this is always populated by the time
+    an event goes out. Lets the panel deep-link an event straight to its
+    real SigNoz trace instead of just asserting "it's all one trace"."""
+    if ctx.root_span_context is None:
+        return None
+    return format(ctx.root_span_context.trace_id, "032x")
+
+
 # The toy agent is one short-lived process per run, so a single module-level
 # context is correct for it. hook_server.py is a long-running process that
 # serves MANY distinct Claude Code sessions over its lifetime, so it can't
@@ -148,6 +161,7 @@ def traced_tool_call(tool_name: str, target: str, params: dict):
             "risk_score": policy_result.risk_score,
             "decision": policy_result.decision.value,
             "reasons": policy_result.reasons,
+            "trace_id": _trace_id_hex(taint_ctx),
             "ts": start,
         }
         broadcast(event)
@@ -212,6 +226,7 @@ def precheck(tool_name: str, target: str, params: dict, override_reason: str = N
             "risk_score": policy_result.risk_score,
             "decision": policy_result.decision.value,
             "reasons": policy_result.reasons,
+            "trace_id": _trace_id_hex(ctx),
             "ts": time.time(),
             "source": "claude_code",
         })
@@ -239,6 +254,7 @@ def record_confirm_resolution(tool_name: str, target: str, approved: bool, sessi
         "tool": tool_name,
         "target": target,
         "decision": "allow" if approved else "block",
+        "trace_id": _trace_id_hex(ctx),
         "ts": time.time(),
     })
 
@@ -261,6 +277,7 @@ def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = No
     import uuid
 
     ctx = get_taint_context(session_id)
+    _session_parent_context(ctx)  # ensure root_span_context exists so trace_id below is real, not None
     confirm_id = str(uuid.uuid4())
     broadcast({
         "type": "confirm_request",
@@ -269,6 +286,7 @@ def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = No
         "tool": tool_name,
         "target": target,
         "reasons": reasons,
+        "trace_id": _trace_id_hex(ctx),
         "ts": time.time(),
     })
 
@@ -317,6 +335,7 @@ def record_tool_output(tool_name: str, target: str, output_text: str, source_hin
         "tool": tool_name,
         "target": target,
         "new_tags": [t.value for t in result.tags if t != Tag.PUBLIC],
+        "trace_id": _trace_id_hex(ctx),
         "ts": time.time(),
     })
     return result

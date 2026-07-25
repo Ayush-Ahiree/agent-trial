@@ -25,6 +25,7 @@ Claude Code HTTP hook contract (see code.claude.com/docs/hooks):
 """
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from instrumentation import precheck, record_tool_output, record_confirm_resolution, web_confirm
@@ -220,6 +221,33 @@ class HookHandler(BaseHTTPRequestHandler):
         mapped_tool = TOOL_NAME_MAP.get(tool_name, tool_name.lower())
         target = _extract_target(tool_name, tool_input)
         output_text = _stringify_output(tool_output)
+
+        # Verified live (2026-07-26): Claude Code's real PostToolUse event
+        # for Read comes back with tool_output == "" even on a genuinely
+        # successful read -- the earlier "verified via curl" note in
+        # PROJECT_STATUS.md only ever exercised a hand-crafted payload with
+        # fake content, never a real Read hook event, so this was never
+        # actually working end-to-end. Since hook_server.py runs on the same
+        # machine with the same filesystem access, just read the file
+        # directly instead of trusting the hook payload for content.
+        #
+        # file_path can be relative to the CALLING session's cwd (Claude
+        # Code's own working directory, sent as payload["cwd"]) -- NOT
+        # relative to this process's own cwd (hook_server.py runs from
+        # agent/, so a naive open(file_path) silently resolved to the
+        # wrong location and the except OSError swallowed it, found by
+        # actually re-testing with a relative path instead of assuming the
+        # first absolute-path test generalized). os.path.join discards the
+        # cwd prefix automatically if file_path is already absolute.
+        if tool_name == "Read" and not output_text.strip():
+            file_path = tool_input.get("file_path", "")
+            if file_path:
+                full_path = os.path.join(payload.get("cwd", ""), file_path)
+                try:
+                    with open(full_path, "r", errors="ignore") as f:
+                        output_text = f.read()
+                except OSError:
+                    pass
 
         record_tool_output(mapped_tool, target, output_text, source_hint=target, session_id=session_id)
 

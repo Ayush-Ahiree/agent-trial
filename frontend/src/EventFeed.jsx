@@ -429,6 +429,7 @@ function EventRow({ event, expanded, onToggle }) {
             {event.risk_score !== undefined && <DetailRow label="risk score" value={event.risk_score} />}
             {event.source && <DetailRow label="source" value={event.source} />}
             <DetailRow label="timestamp" value={event.ts ? new Date(event.ts * 1000).toISOString() : ""} />
+            {event.trace_id && <SigNozTraceLink traceId={event.trace_id} />}
             <pre style={{ marginTop: 8, padding: 8, background: T.page, borderRadius: 6, overflowX: "auto", opacity: 0.8, fontSize: 11 }}>
               {JSON.stringify(stripInternal(event), null, 2)}
             </pre>
@@ -446,6 +447,36 @@ function StatusChip({ severity }) {
       <status.Icon size={10} color={status.color} />
       {status.label}
     </span>
+  );
+}
+
+// SigNoz's own UI (localhost:8080 in this project's setup) routes a trace
+// detail page as /trace/:traceId. Same trace_id AgentTrail already puts on
+// every span in a session (see instrumentation.py's _trace_id_hex), so this
+// link always lands on the exact real trace behind the event -- not a
+// search page you'd have to filter yourself.
+const SIGNOZ_BASE_URL = "http://localhost:8080";
+
+function SigNozTraceLink({ traceId }) {
+  return (
+    <a
+      href={`${SIGNOZ_BASE_URL}/trace/${traceId}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        marginTop: 6,
+        fontSize: 11.5,
+        color: T.accent,
+        textDecoration: "none",
+        fontWeight: 600,
+      }}
+    >
+      View trace in SigNoz ↗
+    </a>
   );
 }
 

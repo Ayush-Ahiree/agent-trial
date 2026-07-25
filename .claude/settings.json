@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Read|Edit|Write|Bash",
+        "matcher": "Read|Edit|Write|Bash|WebFetch",
         "hooks": [
           { "type": "http", "url": "http://localhost:8090/hooks/pre-tool-use", "timeout": 120 }
         ]
@@ -10,7 +10,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Read",
+        "matcher": "Read|WebFetch",
         "hooks": [
           { "type": "http", "url": "http://localhost:8090/hooks/post-tool-use", "timeout": 10 }
         ]

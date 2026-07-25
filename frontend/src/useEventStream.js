@@ -70,5 +70,18 @@ export function useEventStream(wsUrl) {
     }).catch(() => {});
   }, []);
 
-  return { events, pending, connected, resolveConfirm };
+  // clears local view state only -- the relay's own replay buffer is
+  // server-side history, not a client "delete", so a fresh reconnect
+  // (or another tab) will still see past events. This just resets what
+  // THIS client has accumulated in memory/localStorage.
+  const clearEvents = useCallback(() => {
+    setEvents([]);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // storage unavailable -- nothing to clean up
+    }
+  }, []);
+
+  return { events, pending, connected, resolveConfirm, clearEvents };
 }

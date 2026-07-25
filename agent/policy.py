@@ -8,6 +8,8 @@ Responsibilities:
 """
 
 import fnmatch
+import json
+import os
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -57,11 +59,119 @@ ALLOWLISTED_DOMAINS = {
 # admin codebase, env files, and secrets are off-limits regardless of taint
 # state. "dir/**" matches any path with that directory as a path component;
 # a bare glob (no "/") matches against the filename only.
-DENY_PATH_PATTERNS = [
-    "admin/**",
-    ".env*",
-    "secrets/**",
-]
+#
+# Editable from the UI's Policy tab (backed by policies.json, not this
+# constant) -- this list is only the seed used the first time
+# policies.json doesn't exist yet, and the fallback if that file is ever
+# missing or malformed. A broken/deleted policies.json must never
+# silently disable protection.
+_DEFAULT_DENY_PATH_PATTERNS = ["admin/**", ".env*", "secrets/**"]
+
+# Independently toggleable rule categories from evaluate_call() below (the
+# path denylist above is edited directly as a pattern list, not gated by a
+# toggle -- an empty pattern list already means "nothing blocked"). Each
+# key gates one taint/shell rule so the Policy tab can turn a category off
+# for a demo/debugging session without deleting the underlying pattern data.
+_DEFAULT_RULE_TOGGLES = {
+    "dangerous_shell_detection": True,
+    "secret_exfil_blocking": True,
+    "pii_internal_boundary_confirm": True,
+    "baseline_external_flagging": True,
+}
+
+RULE_TOGGLE_LABELS = {
+    "dangerous_shell_detection": "Block dangerous shell commands (rm -rf /, curl | sh, chmod 777, ...)",
+    "secret_exfil_blocking": "Block previously-read secrets from being sent to an external API",
+    "pii_internal_boundary_confirm": "Require approval before PII or internal-only data crosses the trust boundary",
+    "baseline_external_flagging": "Flag (low-risk, still allowed) any untainted call to a new external domain",
+}
+
+POLICIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "policies.json")
+
+_policies_cache = {
+    "patterns": list(_DEFAULT_DENY_PATH_PATTERNS),
+    "toggles": dict(_DEFAULT_RULE_TOGGLES),
+    "mtime": 0,
+}
+
+
+def _ensure_policies_file():
+    if not os.path.exists(POLICIES_FILE):
+        with open(POLICIES_FILE, "w") as f:
+            json.dump(
+                {"deny_path_patterns": _DEFAULT_DENY_PATH_PATTERNS, "rule_toggles": _DEFAULT_RULE_TOGGLES},
+                f,
+                indent=2,
+            )
+
+
+def _reload_if_changed():
+    """Hot-reloadable: re-reads policies.json when its mtime changes, so
+    the UI's Policy tab can update a long-running hook_server.py process
+    without a restart. Toy agent and Claude Code hook both go through
+    check_path_denylist()/evaluate_call(), so both front-ends see edits
+    made here."""
+    _ensure_policies_file()
+    try:
+        mtime = os.path.getmtime(POLICIES_FILE)
+        if mtime != _policies_cache["mtime"]:
+            with open(POLICIES_FILE) as f:
+                data = json.load(f)
+            patterns = data.get("deny_path_patterns")
+            if isinstance(patterns, list) and patterns:
+                _policies_cache["patterns"] = patterns
+            toggles = data.get("rule_toggles")
+            if isinstance(toggles, dict):
+                merged = dict(_DEFAULT_RULE_TOGGLES)
+                merged.update({k: bool(v) for k, v in toggles.items() if k in _DEFAULT_RULE_TOGGLES})
+                _policies_cache["toggles"] = merged
+            _policies_cache["mtime"] = mtime
+    except Exception:
+        pass  # keep serving the last-known-good cached state
+    return _policies_cache
+
+
+def get_deny_path_patterns():
+    _reload_if_changed()
+    return _policies_cache["patterns"]
+
+
+def get_rule_toggles():
+    _reload_if_changed()
+    return _policies_cache["toggles"]
+
+
+def _persist():
+    with open(POLICIES_FILE, "w") as f:
+        json.dump(
+            {"deny_path_patterns": _policies_cache["patterns"], "rule_toggles": _policies_cache["toggles"]},
+            f,
+            indent=2,
+        )
+    _policies_cache["mtime"] = os.path.getmtime(POLICIES_FILE)
+
+
+def set_deny_path_patterns(patterns: list):
+    """Persist a new pattern list from the UI. Silently drops non-string/
+    empty entries rather than failing the whole write on one bad row."""
+    _reload_if_changed()
+    clean = [p.strip() for p in patterns if isinstance(p, str) and p.strip()]
+    _policies_cache["patterns"] = clean
+    _persist()
+    return clean
+
+
+def set_rule_toggles(toggles: dict):
+    """Merge a partial or full toggle update from the UI. Unknown keys are
+    dropped rather than failing the whole request on one bad entry."""
+    _reload_if_changed()
+    merged = dict(_policies_cache["toggles"])
+    for k, v in (toggles or {}).items():
+        if k in _DEFAULT_RULE_TOGGLES:
+            merged[k] = bool(v)
+    _policies_cache["toggles"] = merged
+    _persist()
+    return merged
 
 
 def check_path_denylist(path: str):
@@ -72,7 +182,7 @@ def check_path_denylist(path: str):
     parts = [p for p in path.replace("\\", "/").split("/") if p]
     basename = parts[-1] if parts else path
 
-    for pattern in DENY_PATH_PATTERNS:
+    for pattern in get_deny_path_patterns():
         if pattern.endswith("/**"):
             dirname = pattern[:-3]
             if dirname in parts[:-1]:
@@ -154,23 +264,27 @@ def evaluate_call(tool_name: str, target: str, params: dict, inherited_tags: set
     """
     reasons = []
     risk = 0
+    toggles = get_rule_toggles()
 
     # 0. Hard path denylist (admin/**, .env*, secrets/**) for direct file
     # access -> block regardless of taint. Mirrors the Claude Code hook's
     # path rule (policy.check_path_denylist) so both front-ends get the
     # same protection -- found via live testing that the toy agent could
     # read .env directly with zero resistance while Claude Code couldn't.
+    # Not gated by a toggle: editing the pattern list to empty already
+    # turns this off, a second on/off switch would be redundant.
     if tool_name in ("read_file", "write_file"):
         path_reason = check_path_denylist(target)
         if path_reason:
             return PolicyResult(Decision.BLOCK, 100, [path_reason])
 
     # 1. Dangerous shell patterns -> always block regardless of taint
-    if tool_name == "run_shell" and DANGEROUS_SHELL_RE.search(target):
+    if toggles.get("dangerous_shell_detection", True) and tool_name == "run_shell" and DANGEROUS_SHELL_RE.search(target):
         return PolicyResult(Decision.BLOCK, 100, ["dangerous_shell_pattern"])
 
     # 1b. Shell command referencing a denylisted path (cat/grep/find on
     # .env/admin/secrets) -> block, same as a direct Read/Edit/Write would be.
+    # Also not toggle-gated, same reasoning as rule 0.
     if tool_name == "run_shell":
         command_reason = check_command_denylist(target)
         if command_reason:
@@ -185,23 +299,23 @@ def evaluate_call(tool_name: str, target: str, params: dict, inherited_tags: set
     # including a false BLOCK on a harmless local save whenever taint was
     # active. Found via live testing: routine writes kept showing up
     # "flagged" for no real reason.)
-    if Tag.SECRET in inherited_tags and tool_name == "call_api" and _is_external(target):
+    if toggles.get("secret_exfil_blocking", True) and Tag.SECRET in inherited_tags and tool_name == "call_api" and _is_external(target):
         return PolicyResult(Decision.BLOCK, 95, ["secret_data_exfil_attempt"])
 
     # 3. PII crossing the boundary -> pause for confirmation
-    if Tag.PII in inherited_tags and tool_name == "call_api" and _is_external(target):
+    if toggles.get("pii_internal_boundary_confirm", True) and Tag.PII in inherited_tags and tool_name == "call_api" and _is_external(target):
         reasons.append("pii_crossing_trust_boundary")
         risk = max(risk, 70)
         return PolicyResult(Decision.PENDING_CONFIRM, risk, reasons)
 
     # 4. Internal-only data leaving the boundary -> pause for confirmation
-    if Tag.INTERNAL_ONLY in inherited_tags and tool_name == "call_api" and _is_external(target):
+    if toggles.get("pii_internal_boundary_confirm", True) and Tag.INTERNAL_ONLY in inherited_tags and tool_name == "call_api" and _is_external(target):
         reasons.append("internal_data_crossing_trust_boundary")
         risk = max(risk, 60)
         return PolicyResult(Decision.PENDING_CONFIRM, risk, reasons)
 
     # 5. Baseline: new/unrecognized external domain, no taint -> allow but flag low risk
-    if tool_name == "call_api" and _is_external(target):
+    if toggles.get("baseline_external_flagging", True) and tool_name == "call_api" and _is_external(target):
         reasons.append("external_destination_untainted")
         risk = 20
 

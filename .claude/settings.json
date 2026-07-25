@@ -4,7 +4,7 @@
       {
         "matcher": "Read|Edit|Write|Bash",
         "hooks": [
-          { "type": "http", "url": "http://localhost:8090/hooks/pre-tool-use", "timeout": 10 }
+          { "type": "http", "url": "http://localhost:8090/hooks/pre-tool-use", "timeout": 120 }
         ]
       }
     ],

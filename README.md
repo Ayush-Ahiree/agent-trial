@@ -4,6 +4,38 @@ Matches PRD Section 9 ("Must-have" build order). This gets you an
 end-to-end path: agent loop → instrumented tool calls → taint tagging →
 policy engine → SigNoz + live Agent Trail panel.
 
+## Real trace hierarchy: one session = one trace in SigNoz
+
+Two related gaps, found by actually asking "can I see everything for one
+Claude session in SigNoz" and checking rather than assuming:
+
+1. **Every tool call used to be its own isolated single-span trace** — no
+   parent/child linking, so SigNoz's Services page flagged an
+   `overflow_operation` dataWarning, and there was no way to open one
+   trace and see a session's whole story; you could only filter by
+   `session.id` and get a flat, unordered list of independent traces.
+2. **Taint-tagging had no span at all.** `record_tool_output()` ran
+   `classify_content()` and absorbed the tags, but only ever broadcast a
+   WebSocket event to our own panel — the PRD's G2 ("tag data, propagate
+   across a multi-step trace") was never actually visible in SigNoz,
+   only in our own UI.
+
+Fixed by giving every `TaintContext` (session) a lazily-created root
+span, ended immediately (it's a trace-ID anchor, not a meaningful
+duration — a session has no clean "done" moment to hook, and a Claude
+Code session spans many independent HTTP requests with no shared call
+stack to rely on OTel's normal nested-context propagation). Every
+subsequent span — tool-call decisions, `taint.classify`, and now
+`confirm.resolution` too — explicitly parents to that root via
+`set_span_in_context(NonRecordingSpan(...))` instead of the ambient
+current-span context. See `instrumentation.py`'s `_session_parent_context`.
+
+Verified directly against ClickHouse (not just "should work"): a real
+session's spans — `tool.read_file` → `taint.classify` → `tool.call_api`
+(pending_confirm) → `confirm.resolution` (arriving ~120s later, the real
+timeout, not faked) — all share one `traceID`, and every child's
+`parentSpanID` correctly points to the session's root span.
+
 ## What's here
 
 ```
@@ -160,11 +192,32 @@ Verified end-to-end with a real headless browser (Playwright): a live
 actual rendered page resolved the agent-side poll and the tool either
 executed for real or raised the denial, for both outcomes.
 
-Note: this only affects the toy agent. Claude Code's own `PreToolUse`
-hook already gets this for free — `hook_server.py` returning
-`permissionDecision: "ask"` makes Claude Code show its native permission
-dialog, no extra code needed on that path (verified via curl: PII-tainted
-`WebFetch` correctly returns `"ask"`).
+**Update:** this now covers Claude Code too, not just the toy agent.
+`hook_server.py`'s `PENDING_CONFIRM` path used to return
+`permissionDecision: "ask"`, letting Claude Code show its own native
+permission dialog — that worked, but it meant Claude Code sessions never
+actually used the AgentTrail panel's Approve/Deny UI. The polling logic
+was extracted into a shared `instrumentation.web_confirm()` (used by
+both `tools.py` and `hook_server.py` now) so a Claude Code
+`pending_confirm` broadcasts the exact same panel banner, and the hook's
+HTTP response (`allow`/`deny`) is driven by that human click instead of
+Claude Code's native dialog. Falls back to `"ask"` only if the relay
+itself is unreachable.
+
+This needs the `PreToolUse` hook's timeout raised well above the confirm
+poll window (`.claude/settings.json`, now 120s, was 10s) — Claude Code
+fails OPEN on a hook timeout regardless of what we'd have decided, so
+the hook timeout must outlast `CONFIRM_TIMEOUT_SECONDS` in
+`hook_server.py` (110s) or the panel's decision never has a chance to
+land in time.
+
+Verified end-to-end with a real browser: simulated a Claude Code
+`PostToolUse` (PII-tagged content) then `PreToolUse` (external
+`WebFetch`, blocking on the real hook server while it waits) in parallel
+with a Playwright script clicking Approve in the actual rendered panel —
+the hook server's real HTTP response came back `"allow"` /
+`"approved via AgentTrail panel"`. Repeated for Deny — same real
+mechanism, response came back `"deny"`.
 
 ## Visual design: thebillow.ai
 
@@ -181,6 +234,25 @@ on both light and dark surfaces.
 
 Fonts load via Google Fonts in `index.html`; verified actually loaded
 (not silently falling back) via `document.fonts`.
+
+## Policy tab: edit the path denylist without touching code
+
+`PolicyEditor.jsx` reads/writes `hook_server.py`'s new `GET`/`POST
+/policies`, which read/write `policy.py`'s `policies.json` (hot-reloaded
+by mtime, no restart needed). `check_path_denylist()` -- called from
+`evaluate_call()`, which both the toy agent and the Claude Code hook go
+through -- reads from this same file, so an edit in the UI applies to
+both front-ends immediately.
+
+`policies.json` is gitignored (seeded with the default 3 patterns on
+first run via `_ensure_policies_file()`) since it's live-edited runtime
+state, not source.
+
+Verified end-to-end with a real browser: added `*.key` via the UI's
+input, confirmed the hook server denies a `.key` file immediately,
+confirmed a completely separate toy-agent process (fresh Python
+invocation) also blocks it without a restart, then removed it via the
+UI's Remove button and confirmed it reverted.
 
 ## Event Feed (default panel view)
 

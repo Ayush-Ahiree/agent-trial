@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import AgentTrail from "./AgentTrail";
 import EventFeed from "./EventFeed";
+import PolicyEditor from "./PolicyEditor.jsx";
 import { T } from "./theme.jsx";
 
 export default function App() {
@@ -16,10 +17,13 @@ export default function App() {
         <div style={{ display: "flex", gap: 4, background: T.surfaceRaised, borderRadius: 999, padding: 3 }}>
           <TabButton label="Feed" active={view === "feed"} onClick={() => setView("feed")} />
           <TabButton label="Graph" active={view === "graph"} onClick={() => setView("graph")} />
+          <TabButton label="Policy" active={view === "policy"} onClick={() => setView("policy")} />
         </div>
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>
-        {view === "feed" ? <EventFeed wsUrl="ws://localhost:8765" /> : <AgentTrail wsUrl="ws://localhost:8765" />}
+        {view === "feed" && <EventFeed wsUrl="ws://localhost:8765" />}
+        {view === "graph" && <AgentTrail wsUrl="ws://localhost:8765" />}
+        {view === "policy" && <PolicyEditor />}
       </div>
     </div>
   );

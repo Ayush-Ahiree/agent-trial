@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { T, STATUS, TOOL_META, SOURCE_META, TAG_LABELS, humanReason, eventSeverity, IconChevron, IconAlert } from "./theme.jsx";
+import { T, STATUS, TOOL_META, SOURCE_META, TAG_LABELS, humanReason, eventSeverity, IconChevron, IconAlert, IconX } from "./theme.jsx";
 import { groupBySession, timeAgo } from "./sessionUtils.js";
 import { useEventStream } from "./useEventStream.js";
 import MiniPathGraph from "./MiniPathGraph.jsx";
@@ -21,13 +21,47 @@ import MiniPathGraph from "./MiniPathGraph.jsx";
  * tool call (tools.py's _web_confirm, polling /confirm-status) picks up.
  */
 
+const SEVERITY_OPTIONS = [
+  { value: "all", label: "All statuses" },
+  { value: "critical", label: "Blocked" },
+  { value: "warning", label: "Needs Approval" },
+  { value: "flagged", label: "Flagged" },
+  { value: "clean", label: "Allowed" },
+];
+
 export default function EventFeed({ wsUrl = "ws://localhost:8765" }) {
-  const { events, pending, connected, resolveConfirm } = useEventStream(wsUrl);
+  const { events, pending, connected, resolveConfirm, clearEvents } = useEventStream(wsUrl);
   const [expandedKey, setExpandedKey] = useState(null);
   const [sessionOverrides, setSessionOverrides] = useState({});
   const [, forceTick] = useState(0);
+  const [search, setSearch] = useState("");
+  const [severityFilter, setSeverityFilter] = useState("all");
+  const [toolFilter, setToolFilter] = useState("all");
+  const [confirmClear, setConfirmClear] = useState(false);
 
-  const sessions = useMemo(() => groupBySession(events), [events]);
+  const toolOptions = useMemo(() => {
+    const seen = new Set(events.map((e) => e.tool).filter(Boolean));
+    return Array.from(seen).sort();
+  }, [events]);
+
+  const filteredEvents = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return events.filter((e) => {
+      if (toolFilter !== "all" && e.tool !== toolFilter) return false;
+      if (severityFilter !== "all" && eventSeverity(e) !== severityFilter) return false;
+      if (q) {
+        const hay = [e.target, e.tool, e.session_id, ...(e.reasons || []).map(humanReason)]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [events, search, severityFilter, toolFilter]);
+
+  const filtersActive = search.trim() !== "" || severityFilter !== "all" || toolFilter !== "all";
+  const sessions = useMemo(() => groupBySession(filteredEvents), [filteredEvents]);
 
   // keep relative timestamps ("2m ago") fresh without needing a new event
   useEffect(() => {
@@ -49,6 +83,26 @@ export default function EventFeed({ wsUrl = "ws://localhost:8765" }) {
     [sessions]
   );
 
+  const exportJson = useCallback(() => {
+    const data = filteredEvents.map(({ _key, ...rest }) => rest);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `agenttrail-events-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filteredEvents]);
+
+  const handleClearClick = useCallback(() => {
+    if (!confirmClear) {
+      setConfirmClear(true);
+      return;
+    }
+    clearEvents();
+    setConfirmClear(false);
+  }, [confirmClear, clearEvents]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%", background: T.page, color: T.ink, overflow: "hidden", fontFamily: T.font }}>
       <div style={{ padding: "10px 16px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
@@ -59,12 +113,56 @@ export default function EventFeed({ wsUrl = "ws://localhost:8765" }) {
             {connected ? "Connected" : "Disconnected"}
           </div>
         </div>
-        {sessions.length > 0 && (
-          <div style={{ display: "flex", gap: 8 }}>
+        {events.length > 0 && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <StatTile label="Sessions" value={totals.sessions} />
             <StatTile label="Blocked" value={totals.blocked} color={totals.blocked ? T.critical : undefined} />
             <StatTile label="Needs Approval" value={totals.asked} color={totals.asked ? T.warning : undefined} />
             <StatTile label="Flagged" value={totals.flagged} color={totals.flagged ? T.serious : undefined} />
+          </div>
+        )}
+        {events.length > 0 && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search target, tool, reason…"
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  fontFamily: T.font,
+                  fontSize: 12.5,
+                  padding: search ? "7px 26px 7px 10px" : "7px 10px",
+                  borderRadius: 8,
+                  border: `1px solid ${T.border}`,
+                  background: T.surfaceRaised,
+                  color: T.ink,
+                  outline: "none",
+                }}
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  aria-label="Clear search"
+                  style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex" }}
+                >
+                  <IconX size={11} color={T.inkMuted} />
+                </button>
+              )}
+            </div>
+            <FilterSelect value={severityFilter} onChange={setSeverityFilter} options={SEVERITY_OPTIONS} />
+            <FilterSelect
+              value={toolFilter}
+              onChange={setToolFilter}
+              options={[{ value: "all", label: "All tools" }, ...toolOptions.map((t) => ({ value: t, label: TOOL_META[t]?.label || t }))]}
+            />
+            <ToolbarButton onClick={exportJson} disabled={filteredEvents.length === 0}>
+              Export JSON
+            </ToolbarButton>
+            <ToolbarButton onClick={handleClearClick} onBlur={() => setConfirmClear(false)} danger={confirmClear}>
+              {confirmClear ? "Confirm clear?" : "Clear Logs"}
+            </ToolbarButton>
           </div>
         )}
       </div>
@@ -81,6 +179,11 @@ export default function EventFeed({ wsUrl = "ws://localhost:8765" }) {
         {events.length === 0 && (
           <div style={{ opacity: 0.5, fontSize: 13, padding: 32, textAlign: "center" }}>
             Waiting for events — run the toy agent or trigger a Claude Code hook.
+          </div>
+        )}
+        {events.length > 0 && sessions.length === 0 && (
+          <div style={{ opacity: 0.5, fontSize: 13, padding: 32, textAlign: "center" }}>
+            No events match{filtersActive ? " these filters" : ""}.
           </div>
         )}
         {sessions.map((session) => {
@@ -110,6 +213,58 @@ function StatTile({ label, value, color }) {
       <div style={{ fontSize: 16, fontWeight: 700, color: color || T.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{value}</div>
       <div style={{ fontSize: 10, color: T.inkMuted, marginTop: 1 }}>{label}</div>
     </div>
+  );
+}
+
+function FilterSelect({ value, onChange, options }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        fontFamily: T.font,
+        fontSize: 12,
+        padding: "7px 8px",
+        borderRadius: 8,
+        border: `1px solid ${T.border}`,
+        background: T.surfaceRaised,
+        color: T.ink,
+        flexShrink: 0,
+        maxWidth: 160,
+      }}
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function ToolbarButton({ onClick, disabled, danger, onBlur, children }) {
+  return (
+    <button
+      onClick={onClick}
+      onBlur={onBlur}
+      disabled={disabled}
+      style={{
+        fontFamily: T.font,
+        fontSize: 12,
+        fontWeight: 600,
+        padding: "7px 12px",
+        borderRadius: 8,
+        border: `1px solid ${danger ? T.critical : T.border}`,
+        background: danger ? `${T.critical}18` : T.surfaceRaised,
+        color: disabled ? T.inkMuted : danger ? T.critical : T.ink,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        flexShrink: 0,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </button>
   );
 }
 

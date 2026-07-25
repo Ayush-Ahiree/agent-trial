@@ -19,7 +19,7 @@ import json
 from contextlib import contextmanager
 
 from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
+from opentelemetry.trace import Status, StatusCode, NonRecordingSpan, set_span_in_context, SpanKind
 
 from policy import classify_content, evaluate_call, Decision, PolicyResult, Tag
 
@@ -33,12 +33,50 @@ class TaintContext:
         self.session_id = session_id or str(uuid.uuid4())
         self.active_tags = set()  # tags currently "carried" by the agent's working memory
         self.history = []
+        self.root_span_context = None  # lazily created -- see _session_parent_context
 
     def absorb(self, tags: set):
         self.active_tags |= tags
 
     def snapshot(self):
         return sorted(t.value if hasattr(t, "value") else t for t in self.active_tags)
+
+
+def _session_parent_context(ctx: "TaintContext"):
+    """Every span for a session -- tool-call decisions AND taint-tagging
+    events -- shares one trace_id, so opening ANY ONE span in SigNoz's
+    Trace Explorer shows the WHOLE session as a real parent/child
+    waterfall instead of an unordered flat list of independent
+    one-span traces (which is what this looked like before: every tool
+    call got its own random trace_id, so "see everything for this
+    session" meant manually filtering+sorting a list, and taint events
+    had no span at all).
+
+    A Claude Code session spans many independent HTTP requests to
+    hook_server.py (a new thread per request, no shared call stack), so
+    this can't rely on OTel's ambient current-span context the way
+    normal nested calls do -- each span's parent is set explicitly from
+    a stored SpanContext instead. The root span is created once per
+    session and ended immediately: it's a trace-ID anchor, not a
+    meaningful duration (a session doesn't have a clean "done" moment we
+    could hook to end it later, and the SDK's BatchSpanProcessor only
+    exports a span once it ends)."""
+    if ctx.root_span_context is None:
+        # Fixed name, not f"session:{ctx.session_id}" -- embedding the
+        # unique session id in the SPAN NAME (rather than just the
+        # session.id ATTRIBUTE, which was already set) makes every
+        # session its own distinct "operation name" from SigNoz's
+        # perspective. That's unbounded cardinality: found by actually
+        # re-checking the Services page after the fix and seeing
+        # "overflow_operation" persist -- each new session was creating
+        # a brand new top-level op name forever, hitting whatever cap
+        # SigNoz has on distinct root operations, same failure mode as
+        # before the fix, just reintroduced a different way.
+        root_span = tracer.start_span("session", kind=SpanKind.SERVER)
+        root_span.set_attribute("session.id", ctx.session_id)
+        ctx.root_span_context = root_span.get_span_context()
+        root_span.end()
+    return set_span_in_context(NonRecordingSpan(ctx.root_span_context))
 
 
 # The toy agent is one short-lived process per run, so a single module-level
@@ -90,7 +128,7 @@ def traced_tool_call(tool_name: str, target: str, params: dict):
     start = time.time()
     policy_result = evaluate_call(tool_name, target, params, taint_ctx.active_tags)
 
-    with tracer.start_as_current_span(f"tool.{tool_name}") as span:
+    with tracer.start_as_current_span(f"tool.{tool_name}", context=_session_parent_context(taint_ctx)) as span:
         span.set_attribute("tool.name", tool_name)
         span.set_attribute("tool.target", target)
         span.set_attribute("tool.params_json", json.dumps(params)[:500])
@@ -99,6 +137,7 @@ def traced_tool_call(tool_name: str, target: str, params: dict):
         span.set_attribute("policy.decision", policy_result.decision.value)
         span.set_attribute("policy.reasons", ",".join(policy_result.reasons))
         span.set_attribute("session.id", taint_ctx.session_id)
+        span.set_attribute("source", "toy_agent")
 
         event = {
             "type": "tool_call",
@@ -149,7 +188,7 @@ def precheck(tool_name: str, target: str, params: dict, override_reason: str = N
     else:
         policy_result = evaluate_call(tool_name, target, params, ctx.active_tags)
 
-    with tracer.start_as_current_span(f"tool.{tool_name}") as span:
+    with tracer.start_as_current_span(f"tool.{tool_name}", context=_session_parent_context(ctx)) as span:
         span.set_attribute("tool.name", tool_name)
         span.set_attribute("tool.target", target)
         span.set_attribute("tool.params_json", json.dumps(params)[:500])
@@ -180,19 +219,70 @@ def precheck(tool_name: str, target: str, params: dict, override_reason: str = N
     return policy_result
 
 
-def record_confirm_resolution(tool_name: str, target: str, approved: bool):
+def record_confirm_resolution(tool_name: str, target: str, approved: bool, session_id: str = None):
     """A pending_confirm decision doesn't end at evaluate_call() anymore --
-    a human resolves it (see tools.py's _gate). Broadcast the actual
-    outcome so the panel/telemetry stream reflects what really happened,
-    not just the pre-human-input pause."""
+    a human resolves it. Broadcast the actual outcome so the panel/
+    telemetry stream reflects what really happened, not just the
+    pre-human-input pause. Also a real span, linked into the session's
+    trace like everything else."""
+    ctx = get_taint_context(session_id)
+
+    with tracer.start_as_current_span("confirm.resolution", context=_session_parent_context(ctx)) as span:
+        span.set_attribute("tool.name", tool_name)
+        span.set_attribute("tool.target", target)
+        span.set_attribute("approved", approved)
+        span.set_attribute("session.id", ctx.session_id)
+
     broadcast({
         "type": "confirm_resolution",
-        "session_id": taint_ctx.session_id,
+        "session_id": ctx.session_id,
         "tool": tool_name,
         "target": target,
         "decision": "allow" if approved else "block",
         "ts": time.time(),
     })
+
+
+def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = None, timeout: float = 110.0):
+    """Broadcast a confirm_request (the panel shows Approve/Deny buttons)
+    and poll the relay for a decision. Shared by tools.py's toy-agent
+    confirm flow and hook_server.py's Claude Code PENDING_CONFIRM path --
+    same mechanism, same panel, either front-end.
+
+    Returns True/False if a human resolved it via the panel, or None if
+    the timeout elapsed with the relay still reachable (caller should
+    default-deny -- fail safe, not fail open). Raises ConnectionError if
+    the relay itself was never reachable at all, so each caller can use
+    its own non-panel fallback (tools.py's CLI prompt, Claude Code's own
+    native "ask" dialog).
+    """
+    import urllib.error
+    import urllib.request
+    import uuid
+
+    ctx = get_taint_context(session_id)
+    confirm_id = str(uuid.uuid4())
+    broadcast({
+        "type": "confirm_request",
+        "id": confirm_id,
+        "session_id": ctx.session_id,
+        "tool": tool_name,
+        "target": target,
+        "reasons": reasons,
+        "ts": time.time(),
+    })
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(f"http://localhost:8766/confirm-status?id={confirm_id}", timeout=3) as resp:
+                data = json.loads(resp.read())
+        except (urllib.error.URLError, OSError) as e:
+            raise ConnectionError("relay unreachable") from e
+        if data.get("resolved"):
+            return bool(data.get("approved"))
+        time.sleep(1)
+    return None  # genuine timeout -- relay was reachable, nobody answered
 
 
 def record_tool_output(tool_name: str, target: str, output_text: str, source_hint: str = "", session_id: str = None):
@@ -203,9 +293,22 @@ def record_tool_output(tool_name: str, target: str, output_text: str, source_hin
     session_id: see precheck() -- this is the function that actually
     absorbs taint, so it's the one that most needs per-session isolation
     (otherwise one Claude Code session's secret read taints every other
-    session hitting the same hook_server.py process)."""
+    session hitting the same hook_server.py process).
+
+    This used to be invisible to SigNoz entirely -- classify_content()
+    ran, taint got absorbed, but no span was ever created, so "data
+    entered the agent and got tagged PII" (literally the PRD's G2) never
+    showed up anywhere but our own WebSocket stream. Now it's a real
+    span, linked into the same per-session trace as the tool-call spans."""
     ctx = get_taint_context(session_id)
     result = classify_content(output_text, source_hint=source_hint)
+
+    with tracer.start_as_current_span("taint.classify", context=_session_parent_context(ctx)) as span:
+        span.set_attribute("tool.name", tool_name)
+        span.set_attribute("tool.target", target)
+        span.set_attribute("new_tags", ",".join(t.value for t in result.tags if t != Tag.PUBLIC))
+        span.set_attribute("session.id", ctx.session_id)
+
     ctx.absorb(result.tags)
 
     broadcast({

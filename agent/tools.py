@@ -4,17 +4,11 @@ Every tool goes through traced_tool_call() so nothing bypasses
 instrumentation + policy enforcement.
 """
 
-import json
 import subprocess
-import time
-import urllib.error
 import urllib.request
-import uuid
 
-from instrumentation import traced_tool_call, record_tool_output, record_confirm_resolution, taint_ctx, broadcast
+from instrumentation import traced_tool_call, record_tool_output, record_confirm_resolution, web_confirm
 from policy import Decision
-
-CONFIRM_STATUS_URL = "http://localhost:8766/confirm-status"
 
 
 class PolicyBlocked(Exception):
@@ -41,40 +35,24 @@ def _cli_confirm(tool_name: str, target: str, reasons: list) -> bool:
 def _web_confirm(tool_name: str, target: str, reasons: list, timeout: float = 120.0) -> bool:
     """Default pause/confirm UI: broadcast a confirm_request event (the
     AgentTrail panel shows it as a banner with Approve/Deny buttons) and
-    poll the relay for the panel's decision. Falls back to the CLI prompt
-    if the relay/panel isn't reachable at all, so the toy agent still
-    works standalone without the panel running."""
-    confirm_id = str(uuid.uuid4())
-    broadcast({
-        "type": "confirm_request",
-        "id": confirm_id,
-        "session_id": taint_ctx.session_id,
-        "tool": tool_name,
-        "target": target,
-        "reasons": reasons,
-        "ts": time.time(),
-    })
-
+    poll the relay for the panel's decision (instrumentation.web_confirm,
+    shared with hook_server.py's Claude Code path). Falls back to the CLI
+    prompt if the relay/panel isn't reachable at all, so the toy agent
+    still works standalone without the panel running."""
     print(f"\n⚠️  CONFIRMATION NEEDED: {tool_name} -> {target} (reasons: {', '.join(reasons)})")
     print(f"    Waiting for Approve/Deny in the AgentTrail panel ({timeout:.0f}s timeout)...")
 
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            with urllib.request.urlopen(f"{CONFIRM_STATUS_URL}?id={confirm_id}", timeout=3) as resp:
-                data = json.loads(resp.read())
-        except (urllib.error.URLError, OSError):
-            print("    panel/relay not reachable -- falling back to terminal prompt")
-            return _cli_confirm(tool_name, target, reasons)
+    try:
+        result = web_confirm(tool_name, target, reasons, timeout=timeout)
+    except ConnectionError:
+        print("    panel/relay not reachable -- falling back to terminal prompt")
+        return _cli_confirm(tool_name, target, reasons)
 
-        if data.get("resolved"):
-            approved = bool(data.get("approved"))
-            print(f"    -> {'APPROVED' if approved else 'DENIED'} via panel")
-            return approved
-        time.sleep(1)
-
-    print("    timed out waiting for a decision -- defaulting to DENY")
-    return False
+    if result is None:
+        print("    timed out waiting for a decision -- defaulting to DENY")
+        return False
+    print(f"    -> {'APPROVED' if result else 'DENIED'} via panel")
+    return result
 
 
 # Swappable so a different front-end can replace this without touching

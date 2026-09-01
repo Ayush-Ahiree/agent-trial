@@ -7,6 +7,9 @@ secrets/test_secret.txt
 __pycache__/
 *.pyc
 
+# CLI-managed relay/hook-server processes (pids + logs from `cli.py start`)
+agent/.run/
+
 # Claude Code local/personal settings (settings.json is project-shared, keep that one)
 .claude/settings.local.json
 

@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { T, IconAlert } from "./theme.jsx";
-
-const HOOK_SERVER_BASE = "http://localhost:8090";
+import { authHeaders, policiesUrl } from "./lib/api.js";
 
 // A few ready-to-use patterns so "what do I type here" has a concrete
 // answer instead of just a placeholder -- click one to add it directly.
@@ -19,7 +18,7 @@ const EXAMPLE_PATTERNS = [
  * policies.json -- both front-ends (toy agent + Claude Code hook) read
  * the same file, so an edit here applies to both immediately, no restart.
  */
-export default function PolicyEditor() {
+export default function PolicyEditor({ project = null, session = null }) {
   const [patterns, setPatterns] = useState(null);
   const [toggles, setToggles] = useState(null);
   const [toggleLabels, setToggleLabels] = useState({});
@@ -39,7 +38,7 @@ export default function PolicyEditor() {
 
   const load = useCallback(() => {
     setStatus("loading");
-    fetch(`${HOOK_SERVER_BASE}/policies`)
+    fetch(policiesUrl(project), { headers: authHeaders(session) })
       .then((r) => r.json())
       .then((data) => {
         setPatterns(data.deny_path_patterns || []);
@@ -51,29 +50,32 @@ export default function PolicyEditor() {
         setError(String(e));
         setStatus("error");
       });
-  }, []);
+  }, [project, session]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const save = useCallback((body, applyLocal) => {
-    setStatus("saving");
-    fetch(`${HOOK_SERVER_BASE}/policies`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        applyLocal(data);
-        setStatus("ready");
+  const save = useCallback(
+    (body, applyLocal) => {
+      setStatus("saving");
+      fetch(policiesUrl(project), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(session) },
+        body: JSON.stringify(body),
       })
-      .catch((e) => {
-        setError(String(e));
-        setStatus("error");
-      });
-  }, []);
+        .then((r) => r.json())
+        .then((data) => {
+          applyLocal(data);
+          setStatus("ready");
+        })
+        .catch((e) => {
+          setError(String(e));
+          setStatus("error");
+        });
+    },
+    [project, session]
+  );
 
   const addPattern = (raw) => {
     const p = (raw ?? newPattern).trim();
@@ -119,7 +121,7 @@ export default function PolicyEditor() {
         {status === "error" && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 12px", marginBottom: 16, background: `${T.critical}12`, border: `1px solid ${T.critical}40`, borderRadius: 8, fontSize: 13 }}>
             <IconAlert size={14} color={T.critical} />
-            Couldn't reach the policy server ({HOOK_SERVER_BASE}). Is hook_server.py running?
+            Couldn't reach the policy server ({policiesUrl(project)}). Is the backend running?
           </div>
         )}
 

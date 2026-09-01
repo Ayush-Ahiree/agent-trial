@@ -1,0 +1,13 @@
+{
+  "name": "agenttrail",
+  "version": "0.1.0",
+  "description": "Connect a Claude Code project to your hosted AgentTrail dashboard.",
+  "bin": {
+    "agenttrail": "bin/agenttrail.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

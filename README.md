@@ -4,6 +4,80 @@ Matches PRD Section 9 ("Must-have" build order). This gets you an
 end-to-end path: agent loop → instrumented tool calls → taint tagging →
 policy engine → SigNoz + live Agent Trail panel.
 
+## Quickstart: connect Claude Code to a running panel
+
+One-time setup (starts the backend the panel/hooks talk to):
+
+```bash
+cd agent && pip install -r requirements.txt && python cli.py start
+cd ../frontend && npm install && npm start
+```
+
+Open the panel — it lands on the **Connect** tab first, which shows a
+live up/down check of the relay and hook server plus a single generated
+command. Paste that command into a terminal in (or pointing at) the
+project you want observed:
+
+```bash
+curl -s http://localhost:8090/connect.sh | bash -s -- /path/to/your/project
+```
+
+That fetches the connect step fresh from the running backend (so it
+always has the right hook URLs baked in — `hook_server.py`'s
+`/connect.sh` route, which just execs `cli.py connect` under the hood)
+and merges the two required hook blocks into that project's
+`.claude/settings.json` — it won't touch other hooks already configured
+there, and it no-ops if run again on an already-wired project. Restart
+Claude Code in that project afterward (hooks load at session start, not
+mid-session) and its tool calls show up live on the Feed tab.
+
+Prefer the terminal over clicking through the panel? `python cli.py
+connect /path/to/your/project` does the same merge directly, and
+`python cli.py status` / `stop` check / tear down the backend.
+
+SigNoz itself is optional for this flow — the relay and hook server work
+standalone (see the SigNoz section below for the full trace-export setup).
+
+## Hosted mode (multi-tenant, no local backend)
+
+Everything above is the local self-host path — you run the backend, you
+own the process. There's a second path for a hosted, multi-tenant
+deployment with real accounts: `agent/main.py` (FastAPI, Postgres via
+Supabase, one project = one API key) instead of `hook_server.py` +
+`ws_relay.py`, and the [`agenttrail` npm CLI](cli/) instead of
+`cli.py connect` / the `curl | bash` script.
+
+Once a dashboard is deployed and you're logged in, connecting a project
+is:
+
+```bash
+npx agenttrail login --key <api-key-from-the-dashboard> --api-base https://api.your-domain.example
+npx agenttrail connect
+```
+
+That writes the hook config *and* the API key into
+`.claude/settings.local.json` (gitignored by Claude Code automatically —
+the key never reaches git), pointing at the hosted API instead of
+localhost.
+
+To stand the hosted backend up yourself:
+
+1. Create a free [Supabase](https://supabase.com) project, run
+   `agent/migrations/001_init.sql` against it (SQL editor or `supabase db
+   push`), and copy `agent/.env.example` → `.env`, filling in
+   `DATABASE_URL` and `SUPABASE_JWT_SECRET` from the project's settings.
+2. `cd agent && pip install -r requirements.txt && uvicorn main:app
+   --reload` to run it locally, or `flyctl launch` / `flyctl deploy`
+   (see `agent/fly.toml`) to put it on Fly.io.
+3. Deploy `frontend/` (Vite) to Vercel — see the root `vercel.json` — with
+   `VITE_API_BASE` / `VITE_WS_BASE` pointed at the deployed backend and
+   `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` from the Supabase
+   project (see `frontend/.env.example`).
+
+The frontend falls back to the original local-only UI (no login, talks to
+`localhost:8090`/`:8765`) whenever `VITE_SUPABASE_URL` isn't set, so
+nothing above changes the plain local self-host flow.
+
 ## Real trace hierarchy: one session = one trace in SigNoz
 
 Two related gaps, found by actually asking "can I see everything for one

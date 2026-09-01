@@ -1,0 +1,24 @@
+# Fly.io app config for the hosted backend (agent/main.py). Deploy with
+# `flyctl launch` (first time, from inside agent/) then `flyctl deploy`.
+# Needs these secrets set via `flyctl secrets set`:
+#   DATABASE_URL          -- Supabase "Transaction pooler" connection string
+#   SUPABASE_JWT_SECRET    -- Supabase project settings -> API -> JWT Secret
+#   FRONTEND_ORIGIN         -- the deployed Vercel/domain origin, for CORS
+app = "agenttrail-api"  # placeholder -- flyctl will prompt to confirm/rename on first launch
+primary_region = "iad"
+
+[build]
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false   # keep the WebSocket relay's connections alive rather than sleeping between requests
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

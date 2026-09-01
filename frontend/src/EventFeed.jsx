@@ -29,8 +29,8 @@ const SEVERITY_OPTIONS = [
   { value: "clean", label: "Allowed" },
 ];
 
-export default function EventFeed({ wsUrl = "ws://localhost:8765" }) {
-  const { events, pending, connected, resolveConfirm, clearEvents } = useEventStream(wsUrl);
+export default function EventFeed({ wsUrl = "ws://localhost:8765", authSession = null }) {
+  const { events, pending, connected, resolveConfirm, clearEvents } = useEventStream(wsUrl, authSession);
   const [expandedKey, setExpandedKey] = useState(null);
   const [sessionOverrides, setSessionOverrides] = useState({});
   const [, forceTick] = useState(0);

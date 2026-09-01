@@ -174,15 +174,20 @@ def set_rule_toggles(toggles: dict):
     return merged
 
 
-def check_path_denylist(path: str):
+def check_path_denylist(path: str, patterns: list = None):
     """Return a reason string if `path` matches a hard-denylisted pattern,
-    else None. Works for both absolute and relative paths."""
+    else None. Works for both absolute and relative paths.
+
+    patterns: pass explicitly for the hosted multi-tenant backend (fetched
+    async from Postgres by the caller, see agent/db.py) -- defaults to the
+    local file-backed global for the toy agent / local hook_server.py,
+    unchanged from before this was project-scoped."""
     if not path:
         return None
     parts = [p for p in path.replace("\\", "/").split("/") if p]
     basename = parts[-1] if parts else path
 
-    for pattern in get_deny_path_patterns():
+    for pattern in (patterns if patterns is not None else get_deny_path_patterns()):
         if pattern.endswith("/**"):
             dirname = pattern[:-3]
             if dirname in parts[:-1]:
@@ -255,16 +260,27 @@ def _is_external(target: str) -> bool:
     return host not in ALLOWLISTED_DOMAINS
 
 
-def evaluate_call(tool_name: str, target: str, params: dict, inherited_tags: set) -> PolicyResult:
+def evaluate_call(
+    tool_name: str,
+    target: str,
+    params: dict,
+    inherited_tags: set,
+    deny_path_patterns: list = None,
+    rule_toggles: dict = None,
+) -> PolicyResult:
     """Core policy decision, run BEFORE a tool call executes.
 
     tool_name: e.g. "call_api", "write_file", "run_shell"
     target: url / path / command string being acted on
     inherited_tags: taint tags propagated from upstream spans in this trace
+    deny_path_patterns / rule_toggles: pass explicitly for the hosted
+    multi-tenant backend (fetched async from Postgres by the caller, see
+    agent/db.py) -- default to the local file-backed globals otherwise, so
+    the toy agent and local hook_server.py are unaffected.
     """
     reasons = []
     risk = 0
-    toggles = get_rule_toggles()
+    toggles = rule_toggles if rule_toggles is not None else get_rule_toggles()
 
     # 0. Hard path denylist (admin/**, .env*, secrets/**) for direct file
     # access -> block regardless of taint. Mirrors the Claude Code hook's
@@ -274,7 +290,7 @@ def evaluate_call(tool_name: str, target: str, params: dict, inherited_tags: set
     # Not gated by a toggle: editing the pattern list to empty already
     # turns this off, a second on/off switch would be redundant.
     if tool_name in ("read_file", "write_file"):
-        path_reason = check_path_denylist(target)
+        path_reason = check_path_denylist(target, patterns=deny_path_patterns)
         if path_reason:
             return PolicyResult(Decision.BLOCK, 100, [path_reason])
 

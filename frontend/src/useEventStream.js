@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { eventIdentity } from "./sessionUtils.js";
+import { API_BASE, HOSTED } from "./lib/config.js";
+import { authHeaders } from "./lib/api.js";
 
 /**
  * Shared WS connection + localStorage persistence, used by both
@@ -7,7 +9,9 @@ import { eventIdentity } from "./sessionUtils.js";
  * same event stream, not two independent data sources.
  */
 
-export const RELAY_HTTP_BASE = "http://localhost:8766";
+// Local self-host: the relay's own HTTP ingest port. Hosted: main.py IS
+// the confirm-response endpoint (no separate relay process), see config.js.
+export const RELAY_HTTP_BASE = HOSTED ? API_BASE : "http://localhost:8766";
 export const MAX_EVENTS = 150;
 const STORAGE_KEY = "agenttrail_events_v1";
 
@@ -21,7 +25,7 @@ function loadStoredEvents() {
   }
 }
 
-export function useEventStream(wsUrl) {
+export function useEventStream(wsUrl, session = null) {
   const [events, setEvents] = useState(loadStoredEvents);
   const [pending, setPending] = useState([]);
   const [connected, setConnected] = useState(false);
@@ -61,14 +65,17 @@ export function useEventStream(wsUrl) {
     return () => ws.close();
   }, [wsUrl]);
 
-  const resolveConfirm = useCallback((item, approved) => {
-    setPending((prev) => prev.filter((p) => p.id !== item.id));
-    fetch(`${RELAY_HTTP_BASE}/confirm-response`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: item.id, approved }),
-    }).catch(() => {});
-  }, []);
+  const resolveConfirm = useCallback(
+    (item, approved) => {
+      setPending((prev) => prev.filter((p) => p.id !== item.id));
+      fetch(`${RELAY_HTTP_BASE}/confirm-response`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(session) },
+        body: JSON.stringify({ id: item.id, approved }),
+      }).catch(() => {});
+    },
+    [session]
+  );
 
   // clears local view state only -- the relay's own replay buffer is
   // server-side history, not a client "delete", so a fresh reconnect

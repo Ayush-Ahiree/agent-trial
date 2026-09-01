@@ -128,8 +128,31 @@ class HookHandler(BaseHTTPRequestHandler):
                     "rule_toggle_labels": RULE_TOGGLE_LABELS,
                 }
             )
+        elif self.path == "/connect.sh":
+            self._connect_script()
         else:
             self._respond_json({"error": "not found"}, 404)
+
+    def _connect_script(self):
+        # One-command onboarding: `curl .../connect.sh | bash -s -- <dir>`.
+        # Delegates straight to `cli.py connect` (same process's own CLI,
+        # same absolute path this server was launched from) instead of
+        # re-implementing the settings.json merge here -- one source of
+        # truth for that logic, this just makes it reachable without the
+        # customer needing to know where cli.py lives on disk.
+        cli_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli.py")
+        script = (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            f'exec python3 {json.dumps(cli_path)} connect "${{1:-$(pwd)}}"\n'
+        )
+        data = script.encode()
+        self.send_response(200)
+        self._cors_headers()
+        self.send_header("Content-Type", "text/x-sh")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_POST(self):
         if self.path == "/hooks/pre-tool-use":

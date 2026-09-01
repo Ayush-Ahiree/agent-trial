@@ -105,13 +105,21 @@ _session_contexts = {}
 _session_contexts_lock = threading.Lock()
 
 
-def get_taint_context(session_id: str = None) -> TaintContext:
+def get_taint_context(session_id: str = None, project_id: str = None) -> TaintContext:
+    """project_id: the hosted backend (agent/main.py) serves many tenants
+    from one process, same reason hook_server.py already needed per-session
+    isolation below -- without this, two different customers' sessions
+    could share a TaintContext just because they happened to reuse a
+    session_id. Local self-host callers never pass project_id, so the key
+    collapses to plain session_id, unchanged from before this was
+    multi-tenant."""
     if not session_id:
         return taint_ctx
+    key = (project_id, session_id)
     with _session_contexts_lock:
-        if session_id not in _session_contexts:
-            _session_contexts[session_id] = TaintContext(session_id=session_id)
-        return _session_contexts[session_id]
+        if key not in _session_contexts:
+            _session_contexts[key] = TaintContext(session_id=session_id)
+        return _session_contexts[key]
 
 
 RELAY_INGEST_URL = "http://localhost:8766/event"
@@ -179,7 +187,17 @@ def traced_tool_call(tool_name: str, target: str, params: dict):
         span.set_attribute("duration_ms", int((time.time() - start) * 1000))
 
 
-def precheck(tool_name: str, target: str, params: dict, override_reason: str = None, session_id: str = None) -> PolicyResult:
+def precheck(
+    tool_name: str,
+    target: str,
+    params: dict,
+    override_reason: str = None,
+    session_id: str = None,
+    project_id: str = None,
+    deny_path_patterns: list = None,
+    rule_toggles: dict = None,
+    publish_fn=None,
+) -> PolicyResult:
     """Decision + telemetry only, no execution — for callers that don't run
     the tool themselves (the Claude Code PreToolUse hook adapter: Claude
     Code executes the tool after we hand back allow/deny/ask, we never
@@ -194,13 +212,27 @@ def precheck(tool_name: str, target: str, params: dict, override_reason: str = N
     each needs its own isolated TaintContext (see get_taint_context) --
     without this, an unrelated session could inherit another session's
     taint tags, or two sessions would render as one merged incident card.
+
+    project_id / deny_path_patterns / rule_toggles / publish_fn: hosted
+    multi-tenant backend only (agent/main.py). project_id isolates the
+    TaintContext per tenant; deny_path_patterns/rule_toggles are the
+    project's own Postgres-backed policy (fetched async by the caller,
+    since this function itself stays sync); publish_fn lets the hosted
+    backend insert into Postgres + fan out over its own WebSocket instead
+    of the local broadcast() (POST to the local relay process), which the
+    hosted service doesn't run. All default to the pre-multi-tenant local
+    behavior when omitted.
     """
-    ctx = get_taint_context(session_id)
+    ctx = get_taint_context(session_id, project_id=project_id)
+    publish = publish_fn or broadcast
 
     if override_reason:
         policy_result = PolicyResult(Decision.BLOCK, 100, [override_reason])
     else:
-        policy_result = evaluate_call(tool_name, target, params, ctx.active_tags)
+        policy_result = evaluate_call(
+            tool_name, target, params, ctx.active_tags,
+            deny_path_patterns=deny_path_patterns, rule_toggles=rule_toggles,
+        )
 
     with tracer.start_as_current_span(f"tool.{tool_name}", context=_session_parent_context(ctx)) as span:
         span.set_attribute("tool.name", tool_name)
@@ -217,7 +249,7 @@ def precheck(tool_name: str, target: str, params: dict, override_reason: str = N
             span.set_status(Status(StatusCode.ERROR, "blocked_by_policy"))
             span.add_event("policy.flag_raised", {"reasons": ",".join(policy_result.reasons)})
 
-        broadcast({
+        publish({
             "type": "tool_call",
             "session_id": ctx.session_id,
             "tool": tool_name,
@@ -234,13 +266,16 @@ def precheck(tool_name: str, target: str, params: dict, override_reason: str = N
     return policy_result
 
 
-def record_confirm_resolution(tool_name: str, target: str, approved: bool, session_id: str = None):
+def record_confirm_resolution(tool_name: str, target: str, approved: bool, session_id: str = None, project_id: str = None, publish_fn=None):
     """A pending_confirm decision doesn't end at evaluate_call() anymore --
     a human resolves it. Broadcast the actual outcome so the panel/
     telemetry stream reflects what really happened, not just the
     pre-human-input pause. Also a real span, linked into the session's
-    trace like everything else."""
-    ctx = get_taint_context(session_id)
+    trace like everything else.
+
+    project_id / publish_fn: see precheck()."""
+    ctx = get_taint_context(session_id, project_id=project_id)
+    publish = publish_fn or broadcast
 
     with tracer.start_as_current_span("confirm.resolution", context=_session_parent_context(ctx)) as span:
         span.set_attribute("tool.name", tool_name)
@@ -248,7 +283,7 @@ def record_confirm_resolution(tool_name: str, target: str, approved: bool, sessi
         span.set_attribute("approved", approved)
         span.set_attribute("session.id", ctx.session_id)
 
-    broadcast({
+    publish({
         "type": "confirm_resolution",
         "session_id": ctx.session_id,
         "tool": tool_name,
@@ -259,11 +294,11 @@ def record_confirm_resolution(tool_name: str, target: str, approved: bool, sessi
     })
 
 
-def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = None, timeout: float = 110.0):
+def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = None, timeout: float = 110.0, project_id: str = None, publish_fn=None, confirm_status_url: str = None):
     """Broadcast a confirm_request (the panel shows Approve/Deny buttons)
-    and poll the relay for a decision. Shared by tools.py's toy-agent
-    confirm flow and hook_server.py's Claude Code PENDING_CONFIRM path --
-    same mechanism, same panel, either front-end.
+    and poll for a decision. Shared by tools.py's toy-agent confirm flow
+    and hook_server.py's Claude Code PENDING_CONFIRM path -- same
+    mechanism, same panel, either front-end.
 
     Returns True/False if a human resolved it via the panel, or None if
     the timeout elapsed with the relay still reachable (caller should
@@ -271,15 +306,21 @@ def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = No
     the relay itself was never reachable at all, so each caller can use
     its own non-panel fallback (tools.py's CLI prompt, Claude Code's own
     native "ask" dialog).
+
+    project_id / publish_fn: see precheck(). confirm_status_url: where to
+    poll for the resolution -- defaults to the local relay's HTTP endpoint;
+    the hosted backend (agent/main.py) passes its own in-process resolver
+    instead of polling itself over HTTP.
     """
     import urllib.error
     import urllib.request
     import uuid
 
-    ctx = get_taint_context(session_id)
+    ctx = get_taint_context(session_id, project_id=project_id)
+    publish = publish_fn or broadcast
     _session_parent_context(ctx)  # ensure root_span_context exists so trace_id below is real, not None
     confirm_id = str(uuid.uuid4())
-    broadcast({
+    publish({
         "type": "confirm_request",
         "id": confirm_id,
         "session_id": ctx.session_id,
@@ -290,10 +331,11 @@ def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = No
         "ts": time.time(),
     })
 
+    status_url = confirm_status_url or f"http://localhost:8766/confirm-status?id={confirm_id}"
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(f"http://localhost:8766/confirm-status?id={confirm_id}", timeout=3) as resp:
+            with urllib.request.urlopen(status_url, timeout=3) as resp:
                 data = json.loads(resp.read())
         except (urllib.error.URLError, OSError) as e:
             raise ConnectionError("relay unreachable") from e
@@ -303,7 +345,7 @@ def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = No
     return None  # genuine timeout -- relay was reachable, nobody answered
 
 
-def record_tool_output(tool_name: str, target: str, output_text: str, source_hint: str = "", session_id: str = None):
+def record_tool_output(tool_name: str, target: str, output_text: str, source_hint: str = "", session_id: str = None, project_id: str = None, publish_fn=None):
     """Call after a tool executes successfully: classify the OUTPUT and
     absorb any new taint tags into the session context so downstream
     tool calls inherit them (this is the propagation step).
@@ -317,8 +359,11 @@ def record_tool_output(tool_name: str, target: str, output_text: str, source_hin
     ran, taint got absorbed, but no span was ever created, so "data
     entered the agent and got tagged PII" (literally the PRD's G2) never
     showed up anywhere but our own WebSocket stream. Now it's a real
-    span, linked into the same per-session trace as the tool-call spans."""
-    ctx = get_taint_context(session_id)
+    span, linked into the same per-session trace as the tool-call spans.
+
+    project_id / publish_fn: see precheck()."""
+    ctx = get_taint_context(session_id, project_id=project_id)
+    publish = publish_fn or broadcast
     result = classify_content(output_text, source_hint=source_hint)
 
     with tracer.start_as_current_span("taint.classify", context=_session_parent_context(ctx)) as span:
@@ -329,7 +374,7 @@ def record_tool_output(tool_name: str, target: str, output_text: str, source_hin
 
     ctx.absorb(result.tags)
 
-    broadcast({
+    publish({
         "type": "taint_update",
         "session_id": ctx.session_id,
         "tool": tool_name,

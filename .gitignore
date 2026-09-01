@@ -24,3 +24,5 @@ agent/policies.json
 
 # Production notes
 agenttrail-prd-v2.md
+.vercel
+.env*

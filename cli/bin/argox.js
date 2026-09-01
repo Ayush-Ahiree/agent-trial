@@ -7,7 +7,7 @@ const { connect } = require("../src/connect.js");
 function usage() {
   console.log(
     [
-      "agenttrail <command>",
+      "argox <command>",
       "",
       "Commands:",
       "  login --key <api-key> [--api-base <url>]   store your project's API key",
@@ -30,13 +30,13 @@ function cmdLogin(args) {
 
   config.save({ apiKey: key, apiBase });
   console.log(`Saved. API base: ${apiBase}`);
-  console.log("Now run `agenttrail connect` inside the project you want observed.");
+  console.log("Now run `argox connect` inside the project you want observed.");
 }
 
 function cmdConnect(args) {
   const saved = config.load();
   if (!saved.apiKey) {
-    console.error("error: not logged in -- run `agenttrail login --key <api-key>` first");
+    console.error("error: not logged in -- run `argox login --key <api-key>` first");
     process.exit(1);
   }
   const projectDir = args.find((a) => !a.startsWith("--")) || process.cwd();
@@ -55,7 +55,7 @@ function cmdConnect(args) {
 function cmdStatus() {
   const saved = config.load();
   if (!saved.apiKey) {
-    console.log("[not logged in] run `agenttrail login --key <api-key>`");
+    console.log("[not logged in] run `argox login --key <api-key>`");
     return;
   }
   console.log(`[logged in] api base: ${saved.apiBase || config.DEFAULT_API_BASE}`);

@@ -35,7 +35,7 @@ const SETTINGS_SNIPPET = JSON.stringify(
  * Setup wizard + live service-health check.
  *
  * Hosted mode (HOSTED, see lib/config.js): the customer never touches a
- * local backend at all -- `npx agenttrail` writes the hook config straight
+ * local backend at all -- `npx argox` writes the hook config straight
  * into their project's .claude/settings.local.json (gitignored, carries
  * the real API key). This tab's job is just showing that project's key
  * once and the two-line command to paste.
@@ -146,8 +146,8 @@ function LocalConnect() {
 
 function HostedConnect({ project, apiKey, onRegenerateKey }) {
   const [regenerating, setRegenerating] = useState(false);
-  const loginCmd = apiKey ? `npx agenttrail login --key ${apiKey} --api-base ${API_BASE}` : null;
-  const connectCmd = "npx agenttrail connect";
+  const loginCmd = apiKey ? `npx @amisecured/argox login --key ${apiKey} --api-base ${API_BASE}` : null;
+  const connectCmd = "npx @amisecured/argox connect";
 
   const regenerate = async () => {
     setRegenerating(true);

@@ -1,14 +1,18 @@
 "use strict";
 
-// ~/.agenttrail/config.json -- { apiBase, apiKey }, written by `login`,
+// ~/.argox/config.json -- { apiBase, apiKey }, written by `login`,
 // read by `connect`. Stdlib only, same "no extra deps to install" choice
 // the Python cli.py already made for its own connect/status/stop commands.
+//
+// Named ~/.argox (not ~/.agenttrail) because the npm package is published
+// as `argox` -- the name `agenttrail` was already taken by an unrelated
+// package on the public registry.
 
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const CONFIG_DIR = path.join(os.homedir(), ".agenttrail");
+const CONFIG_DIR = path.join(os.homedir(), ".argox");
 const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
 
 // Placeholder until the real domain is live -- login/connect always let

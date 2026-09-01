@@ -58,15 +58,18 @@ The local self-host path above is one option — there's a second path
 for a hosted, multi-tenant deployment with real accounts:
 `agent/main.py` (FastAPI, Postgres via Supabase, one project = one API
 key) instead of `hook_server.py` + `ws_relay.py`, and the
-[`agenttrail` npm CLI](cli/) instead of `cli.py connect` / the
-`curl | bash` script.
+[`@amisecured/argox` npm CLI](cli/) instead of `cli.py connect` / the
+`curl | bash` script. (Not published as plain `agenttrail` or `argox` —
+`agenttrail` was already taken by an unrelated package, and `argox` was
+blocked by npm's name-similarity guard against `argon2`/`arg`/`args`/
+`argv`, which suggested this scoped name instead.)
 
 Once a dashboard is deployed and you're logged in, connecting a project
 is:
 
 ```bash
-npx agenttrail login --key <api-key-from-the-dashboard> --api-base https://api.your-domain.example
-npx agenttrail connect
+npx @amisecured/argox login --key <api-key-from-the-dashboard> --api-base https://api.your-domain.example
+npx @amisecured/argox connect
 ```
 
 That writes the hook config *and* the API key into

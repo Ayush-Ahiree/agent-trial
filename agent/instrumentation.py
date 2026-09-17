@@ -197,6 +197,7 @@ def precheck(
     deny_path_patterns: list = None,
     rule_toggles: dict = None,
     publish_fn=None,
+    source: str = "claude_code",
 ) -> PolicyResult:
     """Decision + telemetry only, no execution — for callers that don't run
     the tool themselves (the Claude Code PreToolUse hook adapter: Claude
@@ -222,6 +223,13 @@ def precheck(
     of the local broadcast() (POST to the local relay process), which the
     hosted service doesn't run. All default to the pre-multi-tenant local
     behavior when omitted.
+
+    source: how this call reached the engine -- "claude_code" (default,
+    the PreToolUse hook) or "api" (the generic /v1/tool-call route in
+    main.py, used by non-Claude agents via the SDK). Recorded on the span
+    and in the published event so the dashboard (sessionUtils.js,
+    pathLayout.js) can label sessions correctly instead of every
+    non-Claude caller falling into the "claude_code"/"toy_agent" binary.
     """
     ctx = get_taint_context(session_id, project_id=project_id)
     publish = publish_fn or broadcast
@@ -243,7 +251,7 @@ def precheck(
         span.set_attribute("policy.decision", policy_result.decision.value)
         span.set_attribute("policy.reasons", ",".join(policy_result.reasons))
         span.set_attribute("session.id", ctx.session_id)
-        span.set_attribute("source", "claude_code_hook")
+        span.set_attribute("source", source)
 
         if policy_result.decision == Decision.BLOCK:
             span.set_status(Status(StatusCode.ERROR, "blocked_by_policy"))
@@ -260,7 +268,7 @@ def precheck(
             "reasons": policy_result.reasons,
             "trace_id": _trace_id_hex(ctx),
             "ts": time.time(),
-            "source": "claude_code",
+            "source": source,
         })
 
     return policy_result

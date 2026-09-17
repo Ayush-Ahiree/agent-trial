@@ -32,7 +32,9 @@ export function buildTrail(session) {
 }
 
 function sourceLabel(source) {
-  return source === "claude_code" ? "Claude Code" : "Toy Agent";
+  if (source === "claude_code") return "Claude Code";
+  if (source === "api") return "API";
+  return "Toy Agent";
 }
 
 function shortLabel(event) {

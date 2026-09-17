@@ -1,0 +1,15 @@
+[project]
+name = "argox"
+version = "0.1.0"
+description = "AgentTrail SDK: policy checks + telemetry for any Python agent, via the generic /v1/tool-call API."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["argox*"]

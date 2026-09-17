@@ -6,6 +6,9 @@ secrets/test_secret.txt
 # Python
 __pycache__/
 *.pyc
+*.egg-info/
+dist/
+build/
 
 # CLI-managed relay/hook-server processes (pids + logs from `cli.py start`)
 agent/.run/

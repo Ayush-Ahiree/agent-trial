@@ -6,7 +6,8 @@
  */
 
 export function sessionSource(events) {
-  return events.some((e) => e.source === "claude_code") ? "claude_code" : "toy_agent";
+  const withSource = events.find((e) => e.source);
+  return withSource ? withSource.source : "toy_agent";
 }
 
 export function deriveHeadline(events) {

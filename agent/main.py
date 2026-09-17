@@ -141,6 +141,49 @@ async def _publish_async(project_id: str, event: dict):
 # Mirrors hook_server.py's _pre_tool_use/_post_tool_use (same TOOL_NAME_MAP,
 # same decision contract Claude Code expects), project-scoped and async.
 
+async def _decide(mapped_tool: str, target: str, params: dict, session_id: str, project_id: str, source: str) -> tuple[str, str]:
+    """Shared by /hooks/pre-tool-use (Claude-shaped) and /v1/tool-call
+    (generic) -- both just need an "allow"/"deny"/"ask" verdict + reason
+    for the same (tool, target) off the same policy engine; they only
+    differ in how the request/response gets translated at the edges.
+    """
+    policies = await db.get_policies(project_id)
+    publish = _make_publisher(project_id)
+
+    result = await run_in_threadpool(
+        precheck,
+        mapped_tool, target, params,
+        session_id=session_id,
+        project_id=project_id,
+        deny_path_patterns=policies["deny_path_patterns"],
+        rule_toggles=policies["rule_toggles"],
+        publish_fn=publish,
+        source=source,
+    )
+
+    if result.decision != Decision.PENDING_CONFIRM:
+        return DECISION_TO_PERMISSION[result.decision], ("; ".join(result.reasons) if result.reasons else "ok")
+
+    reason_text = "; ".join(result.reasons) if result.reasons else "confirmation needed"
+    try:
+        approved = await run_in_threadpool(
+            web_confirm, mapped_tool, target, result.reasons,
+            session_id=session_id, project_id=project_id, publish_fn=publish,
+            timeout=CONFIRM_TIMEOUT_SECONDS,
+            confirm_status_url=f"http://127.0.0.1:{PORT}/confirm-status",
+        )
+    except ConnectionError:
+        return "ask", reason_text
+
+    await run_in_threadpool(
+        record_confirm_resolution, mapped_tool, target, bool(approved),
+        session_id=session_id, project_id=project_id, publish_fn=publish,
+    )
+    if approved:
+        return "allow", "approved via AgentTrail dashboard"
+    return "deny", f"denied via AgentTrail dashboard (or timed out): {reason_text}"
+
+
 @app.post("/hooks/pre-tool-use")
 async def pre_tool_use(payload: dict, project: dict = Depends(require_api_key_project)):
     project_id = str(project["id"])
@@ -150,42 +193,8 @@ async def pre_tool_use(payload: dict, project: dict = Depends(require_api_key_pr
 
     mapped_tool = TOOL_NAME_MAP.get(tool_name, tool_name.lower())
     target = _extract_target(tool_name, tool_input)
-    policies = await db.get_policies(project_id)
-    publish = _make_publisher(project_id)
 
-    result = await run_in_threadpool(
-        precheck,
-        mapped_tool, target, tool_input,
-        session_id=session_id,
-        project_id=project_id,
-        deny_path_patterns=policies["deny_path_patterns"],
-        rule_toggles=policies["rule_toggles"],
-        publish_fn=publish,
-    )
-
-    if result.decision == Decision.PENDING_CONFIRM:
-        reason_text = "; ".join(result.reasons) if result.reasons else "confirmation needed"
-        try:
-            approved = await run_in_threadpool(
-                web_confirm, mapped_tool, target, result.reasons,
-                session_id=session_id, project_id=project_id, publish_fn=publish,
-                timeout=CONFIRM_TIMEOUT_SECONDS,
-                confirm_status_url=f"http://127.0.0.1:{PORT}/confirm-status",
-            )
-        except ConnectionError:
-            permission, reason = "ask", reason_text
-        else:
-            await run_in_threadpool(
-                record_confirm_resolution, mapped_tool, target, bool(approved),
-                session_id=session_id, project_id=project_id, publish_fn=publish,
-            )
-            if approved:
-                permission, reason = "allow", "approved via AgentTrail dashboard"
-            else:
-                permission, reason = "deny", f"denied via AgentTrail dashboard (or timed out): {reason_text}"
-    else:
-        permission = DECISION_TO_PERMISSION[result.decision]
-        reason = "; ".join(result.reasons) if result.reasons else "ok"
+    permission, reason = await _decide(mapped_tool, target, tool_input, session_id, project_id, source="claude_code")
 
     return {
         "hookSpecificOutput": {
@@ -234,6 +243,55 @@ async def post_tool_use(payload: dict, project: dict = Depends(require_api_key_p
     )
 
     return {"hookSpecificOutput": {"hookEventName": "PostToolUse"}}
+
+
+# ----------------------------------------------------------- generic API ---
+# Framework-neutral counterpart to /hooks/pre-tool-use and
+# /hooks/post-tool-use above, for callers that aren't Claude Code and have
+# no PreToolUse/PostToolUse hook mechanism to translate -- see
+# sdk/python/argox for the client these are meant to be called from.
+#
+# Same policy engine, same taint tracking, same dashboard/events pipeline
+# as the Claude hook routes (_decide/precheck/record_tool_output are all
+# shared), just without the Claude-shaped request/response envelope.
+# `action`/`target` are the engine's own generic vocabulary already used
+# internally (see TOOL_NAME_MAP in hook_server.py and evaluate_call() in
+# policy.py): "read_file" / "write_file" / "run_shell" / "call_api", though
+# evaluate_call() falls through to a harmless ALLOW for any other string,
+# so a caller with its own verb names still gets a decision, just no
+# policy rules that specifically look for that verb.
+
+@app.post("/v1/tool-call")
+async def tool_call(payload: dict, project: dict = Depends(require_api_key_project)):
+    project_id = str(project["id"])
+    action = (payload.get("action") or "").strip()
+    target = payload.get("target")
+    if not action or target is None:
+        raise HTTPException(422, "\"action\" and \"target\" are required")
+    session_id = payload.get("session_id")
+    params = payload.get("input") or {}
+
+    decision, reason = await _decide(action, str(target), params, session_id, project_id, source="api")
+
+    return {"decision": decision, "reason": reason}
+
+
+@app.post("/v1/tool-result")
+async def tool_result(payload: dict, project: dict = Depends(require_api_key_project)):
+    project_id = str(project["id"])
+    action = (payload.get("action") or "").strip()
+    target = payload.get("target")
+    if not action or target is None:
+        raise HTTPException(422, "\"action\" and \"target\" are required")
+    session_id = payload.get("session_id")
+    output_text = _stringify_output(payload.get("output", ""))
+
+    publish = _make_publisher(project_id)
+    await run_in_threadpool(
+        record_tool_output, action, str(target), output_text,
+        source_hint=str(target), session_id=session_id, project_id=project_id, publish_fn=publish,
+    )
+    return {"status": "ok"}
 
 
 @app.get("/confirm-status")

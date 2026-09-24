@@ -369,7 +369,9 @@ function SessionCard({ session, expanded, onToggle, expandedEventKey, onToggleEv
 function EventRow({ event, expanded, onToggle }) {
   const severity = eventSeverity(event);
   const status = STATUS[severity];
-  const time = event.ts ? new Date(event.ts * 1000).toLocaleTimeString() : "";
+  const eventDate = event.ts ? new Date(event.ts * 1000) : null;
+  const date = eventDate ? eventDate.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+  const time = eventDate ? eventDate.toLocaleTimeString() : "";
   const toolMeta = TOOL_META[event.tool];
   const ToolIcon = toolMeta?.Icon;
 
@@ -405,7 +407,10 @@ function EventRow({ event, expanded, onToggle }) {
       }}
     >
       {ToolIcon && <ToolIcon size={14} color={T.inkMuted} style={{ marginTop: 2, flexShrink: 0 }} />}
-      <div style={{ opacity: 0.5, flexShrink: 0, width: 70, fontSize: 11, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{time}</div>
+      <div style={{ flexShrink: 0, width: 74, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+        <div style={{ opacity: 0.45, fontSize: 9.5, textTransform: "uppercase", letterSpacing: 0.3 }}>{date}</div>
+        <div style={{ opacity: 0.5, fontSize: 11 }}>{time}</div>
+      </div>
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ fontWeight: 600, fontSize: 12.5 }}>{title}</span>

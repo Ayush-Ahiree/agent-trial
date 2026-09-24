@@ -26,6 +26,12 @@ from dotenv import load_dotenv
 
 load_dotenv()  # local dev only -- Fly sets DATABASE_URL/SUPABASE_JWT_SECRET/etc via `flyctl secrets`, no .env there
 
+import otel_setup  # noqa: F401  side effect: configures the OTel exporter.
+# hook_server.main() does this same import before serving, but main.py
+# never calls that function -- it only imports symbols from the module --
+# so without this, the hosted backend ran on the SDK's no-op tracer:
+# every event's trace_id was all-zeros and nothing reached SigNoz at all.
+
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware

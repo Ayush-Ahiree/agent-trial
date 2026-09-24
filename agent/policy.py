@@ -40,6 +40,22 @@ SECRET_RE = re.compile(
     r"ghp_[a-zA-Z0-9]{20,}|gsk_[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9\-_\.]{20,}|"
     r"[a-fA-F0-9]{32,}|-----BEGIN [A-Z ]+PRIVATE KEY-----)"
 )
+# SECRET_RE above only recognizes vendor-specific KEY SHAPES (AKIA..., sk-...,
+# etc) -- it misses the far more common case of a config/env value simply
+# ASSIGNED to a secret-sounding name, e.g. `AWS_SECRET_ACCESS_KEY=wJalr...`
+# or `password: hunter2`, which don't match any of those shapes. Found via
+# live testing: a config file with exactly that AWS_SECRET_ACCESS_KEY line
+# classified as `public` and sailed through to an external call unflagged.
+# Keyed on the variable name, not the value's shape, so it catches
+# arbitrary secret values -- deliberately permissive (an 8+ char value is
+# enough to match) since a missed real secret is worse than an over-tagged
+# one. The value charset excludes `$`/`{`/`}` so `${DB_PASSWORD}`-style
+# indirection (referencing another secret, not holding one) doesn't match.
+ASSIGNED_SECRET_RE = re.compile(
+    r"(?i)\b[a-z0-9_-]*(?:password|passwd|pwd|secret|api[_-]?key|"
+    r"access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|token)"
+    r"[a-z0-9_-]*\s*[:=]\s*['\"]?[A-Za-z0-9/+_\-\.]{8,}['\"]?"
+)
 INTERNAL_MARKER_RE = re.compile(r"(confidential|internal[\s\-]?use[\s\-]?only|do not distribute)", re.I)
 
 DANGEROUS_SHELL_RE = re.compile(
@@ -241,7 +257,7 @@ def classify_content(text: str, source_hint: str = "") -> ClassificationResult:
 
     if EMAIL_RE.search(text) or PHONE_RE.search(text):
         tags.add(Tag.PII)
-    if SECRET_RE.search(text):
+    if SECRET_RE.search(text) or ASSIGNED_SECRET_RE.search(text):
         tags.add(Tag.SECRET)
     if INTERNAL_MARKER_RE.search(text):
         tags.add(Tag.INTERNAL_ONLY)

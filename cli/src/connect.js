@@ -62,8 +62,8 @@ function connect(projectDir, { apiBase, apiKey }) {
           type: "http",
           url,
           timeout: cfg.timeout,
-          headers: { Authorization: "Bearer $AGENTTRAIL_API_KEY" },
-          allowedEnvVars: ["AGENTTRAIL_API_KEY"],
+          headers: { Authorization: "Bearer $ARGOX_API_KEY" },
+          allowedEnvVars: ["ARGOX_API_KEY"],
         },
       ],
     });
@@ -71,8 +71,8 @@ function connect(projectDir, { apiBase, apiKey }) {
     changed = true;
   }
 
-  if (settings.env.AGENTTRAIL_API_KEY !== apiKey) {
-    settings.env.AGENTTRAIL_API_KEY = apiKey;
+  if (settings.env.ARGOX_API_KEY !== apiKey) {
+    settings.env.ARGOX_API_KEY = apiKey;
     changed = true;
   }
 

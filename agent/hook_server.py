@@ -1,5 +1,5 @@
 """
-AgentTrail - Claude Code HTTP Hook Server (Feature F)
+Argox - Claude Code HTTP Hook Server (Feature F)
 
 The only new component for the Claude Code integration: a thin adapter
 that translates Claude Code's PreToolUse/PostToolUse hook JSON into calls
@@ -219,9 +219,9 @@ class HookHandler(BaseHTTPRequestHandler):
             else:
                 record_confirm_resolution(mapped_tool, target, bool(approved), session_id=session_id)
                 if approved:
-                    permission, reason = "allow", "approved via AgentTrail panel"
+                    permission, reason = "allow", "approved via Argox panel"
                 else:
-                    permission, reason = "deny", f"denied via AgentTrail panel (or timed out): {reason_text}"
+                    permission, reason = "deny", f"denied via Argox panel (or timed out): {reason_text}"
         else:
             permission = DECISION_TO_PERMISSION[result.decision]
             reason = "; ".join(result.reasons) if result.reasons else "ok"
@@ -289,7 +289,7 @@ def main():
     host = os.environ.get("HOOK_SERVER_HOST", "localhost")
     port = int(os.environ.get("HOOK_SERVER_PORT", "8090"))
     server = ThreadingHTTPServer((host, port), HookHandler)
-    print(f"AgentTrail hook server listening on http://{host}:{port}/hooks/{{pre,post}}-tool-use")
+    print(f"Argox hook server listening on http://{host}:{port}/hooks/{{pre,post}}-tool-use")
     server.serve_forever()
 
 

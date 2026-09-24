@@ -4,7 +4,7 @@
 #   DATABASE_URL          -- Supabase "Transaction pooler" connection string
 #   SUPABASE_JWT_SECRET    -- Supabase project settings -> API -> JWT Secret
 #   FRONTEND_ORIGIN         -- the deployed Vercel/domain origin, for CORS
-app = "agenttrail-api"  # placeholder -- flyctl will prompt to confirm/rename on first launch
+app = "argox-api"  # placeholder -- flyctl will prompt to confirm/rename on first launch
 primary_region = "iad"
 
 [build]

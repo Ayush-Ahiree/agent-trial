@@ -1,4 +1,4 @@
-# argox (AgentTrail Python SDK)
+# argox — Python SDK
 
 Not published to PyPI yet -- install from source for now:
 
@@ -31,8 +31,8 @@ gets a decision back (default-allow), just without a verb-specific rule.
 
 ## Config
 
-Reads `AGENTTRAIL_API_KEY` (the same key `argox connect` writes for
-Claude Code) and optionally `AGENTTRAIL_API_BASE` from the environment,
+Reads `ARGOX_API_KEY` (the same key `argox connect` writes for
+Claude Code) and optionally `ARGOX_API_BASE` from the environment,
 or pass them explicitly:
 
 ```python

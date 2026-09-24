@@ -5,7 +5,7 @@ import { useEventStream } from "./useEventStream.js";
 import MiniPathGraph from "./MiniPathGraph.jsx";
 
 /**
- * Chronological event feed -- the default AgentTrail view. Replaces the
+ * Chronological event feed -- the default Argox view. Replaces the
  * force-graph as the primary UI: for a security-review workflow you want
  * to read "what happened, in order, and did anything need my attention"
  * at a glance, not decode node layout or raw policy-engine field names.
@@ -89,7 +89,7 @@ export default function EventFeed({ wsUrl = "ws://localhost:8765", authSession =
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `agenttrail-events-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    a.download = `argox-events-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }, [filteredEvents]);
@@ -456,7 +456,7 @@ function StatusChip({ severity }) {
 }
 
 // SigNoz's own UI (localhost:8080 in this project's setup) routes a trace
-// detail page as /trace/:traceId. Same trace_id AgentTrail already puts on
+// detail page as /trace/:traceId. Same trace_id Argox already puts on
 // every span in a session (see instrumentation.py's _trace_id_hex), so this
 // link always lands on the exact real trace behind the event -- not a
 // search page you'd have to filter yourself.

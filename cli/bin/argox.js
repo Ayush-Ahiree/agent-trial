@@ -22,7 +22,7 @@ function cmdLogin(args) {
   const keyIdx = args.indexOf("--key");
   const key = keyIdx !== -1 ? args[keyIdx + 1] : null;
   if (!key) {
-    console.error("error: --key <api-key> is required (find it on your project's page in the AgentTrail dashboard)");
+    console.error("error: --key <api-key> is required (find it on your project's page in the Argox dashboard)");
     process.exit(1);
   }
   const baseIdx = args.indexOf("--api-base");

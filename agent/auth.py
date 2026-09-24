@@ -1,5 +1,5 @@
 """
-AgentTrail - Auth for the hosted (multi-tenant) backend.
+Argox - Auth for the hosted (multi-tenant) backend.
 
 Two credential types for two callers, per the plan:
   - API keys: Claude Code hooks (via the npm CLI's config) -> project-scoped,

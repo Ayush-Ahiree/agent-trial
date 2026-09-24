@@ -28,7 +28,7 @@ import { buildTrail, layoutSerpentine } from "./pathLayout.js";
 
 const START_COLOR = T.coolInk;
 
-export default function AgentTrail({ wsUrl = "ws://localhost:8765" }) {
+export default function Argox({ wsUrl = "ws://localhost:8765" }) {
   const { events, connected } = useEventStream(wsUrl);
   const [pinnedSession, setPinnedSession] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);

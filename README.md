@@ -1,7 +1,7 @@
-# AgentTrail
+# Argox
 
 Real-time security observability and data-lineage tracking for AI agents.
-AgentTrail sits between an agent and its tools, tags data as it flows
+Argox sits between an agent and its tools, tags data as it flows
 through a session (secrets, PII, internal-only), and enforces policy
 (allow / block / require human confirmation) on anything that tries to
 cross a trust boundary — all visible live in a web panel, with full
@@ -13,7 +13,7 @@ Two ways to connect an agent:
 - **A custom Python agent loop**, via the `tools.py` / `instrumentation.py`
   wrappers directly (see `agent_loop.py` for a working example).
 
-Two ways to run AgentTrail itself:
+Two ways to run Argox itself:
 - **Local self-host** — you run the backend, no account needed.
 - **Hosted** — a multi-tenant deployment with real accounts and API keys,
   for teams who don't want to run their own backend.
@@ -100,7 +100,7 @@ nothing above changes the plain local self-host flow.
 ## What's here
 
 ```
-agenttrail/
+argox/
 ├── agent/
 │   ├── agent_loop.py       # ReAct loop, calls Claude with tool schemas
 │   ├── tools.py            # read_file / write_file / run_shell / call_api
@@ -117,12 +117,12 @@ agenttrail/
 │   ├── alert_webhook_receiver.py  # local receiver for testing SigNoz alert rules
 │   ├── fly.toml / Dockerfile      # hosted backend deploy config
 │   └── requirements.txt
-├── cli/                     # `agenttrail` npm package for hosted-mode onboarding
+├── cli/                     # `@amisecured/argox` npm package for hosted-mode onboarding
 ├── frontend/
 │   └── src/
 │       ├── ConnectPanel.jsx  # first-run tab: generates the connect command
 │       ├── EventFeed.jsx     # chronological event log + confirm banner (default view)
-│       ├── AgentTrail.jsx    # live per-session path graph (secondary tab)
+│       ├── Argox.jsx         # live per-session path graph (secondary tab)
 │       ├── PolicyEditor.jsx  # edit the path denylist without touching code
 │       ├── LoginPage.jsx     # Supabase auth, gates the app in hosted mode
 │       └── lib/              # hosted-mode API client, Supabase client, config
@@ -192,7 +192,7 @@ runtime state, seeded with three default patterns on first run.
   JSON). Server-side replay buffer (`ws_relay.py`, last ~500 events) and
   client-side `localStorage` cache (`EventFeed.jsx`) mean a fresh tab,
   reconnect, or refresh never silently misses events.
-- **Graph**: `AgentTrail.jsx` renders each session as an actual ordered
+- **Graph**: `Argox.jsx` renders each session as an actual ordered
   chain (not a hub-and-spoke), auto-following the most recently active
   session, with a serpentine layout so long sessions wrap cleanly instead
   of running off-screen. The same layout powers `MiniPathGraph.jsx`, an
@@ -259,7 +259,7 @@ tool-calling reliability and speed). For raw speed at the cost of
 slightly less reliable tool-calling, try a small gpt-oss model instead —
 pass it as `run_agent(task, model="...")`.
 
-### 3. Agent Trail panel (frontend)
+### 3. Argox panel (frontend)
 ```bash
 cd frontend
 npm install

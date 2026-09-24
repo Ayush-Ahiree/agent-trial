@@ -45,7 +45,7 @@ export default function LoginPage() {
   return (
     <div style={{ height: "100%", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: T.page, fontFamily: T.font }}>
       <div style={{ width: 340, padding: 28, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface }}>
-        <div style={{ fontSize: 20, fontWeight: 500, fontFamily: T.fontSerif, marginBottom: 4 }}>AgentTrail</div>
+        <div style={{ fontSize: 20, fontWeight: 500, fontFamily: T.fontSerif, marginBottom: 4 }}>Argox</div>
         <div style={{ fontSize: 13, color: T.inkSecondary, marginBottom: 20 }}>
           {mode === "login" && "Sign in to your dashboard"}
           {mode === "signup" && "Create an account"}

@@ -1,5 +1,5 @@
 """
-Client for AgentTrail's generic /v1/tool-call and /v1/tool-result routes
+Client for Argox's generic /v1/tool-call and /v1/tool-result routes
 (agent/main.py) -- lets any Python agent (LangChain tool, OpenAI Agents
 SDK function tool, a homegrown loop) get the same policy engine and
 dashboard visibility Claude Code gets via its PreToolUse/PostToolUse
@@ -9,7 +9,7 @@ Deliberately does not auto-wire anything (no equivalent of the npm CLI's
 `argox connect` here) -- most agent frameworks have no hook-config file to
 merge into, so you call check()/record_output() around your own tool
 calls instead. Config follows the same env var the npm CLI's hooks use
-(AGENTTRAIL_API_KEY) plus AGENTTRAIL_API_BASE for the endpoint.
+(ARGOX_API_KEY) plus ARGOX_API_BASE for the endpoint.
 """
 
 from __future__ import annotations
@@ -20,11 +20,11 @@ import urllib.request
 import json as _json
 from dataclasses import dataclass
 
-DEFAULT_API_BASE = "https://api.agenttrail.dev"  # placeholder until the real domain is live, same as cli/src/config.js
+DEFAULT_API_BASE = "https://api.argox.dev"  # placeholder until the real domain is live, same as cli/src/config.js
 
 
 class ArgoxError(Exception):
-    """Raised on auth/network/protocol failures talking to the AgentTrail
+    """Raised on auth/network/protocol failures talking to the Argox
     backend. Deliberately NOT raised for a policy "deny" -- see
     CheckResult.allowed for that; a deny is an expected, successful
     response from the API, not an error."""
@@ -42,13 +42,13 @@ class CheckResult:
 
 class Client:
     def __init__(self, api_key: str | None = None, api_base: str | None = None, timeout: float = 15.0):
-        self.api_key = api_key or os.environ.get("AGENTTRAIL_API_KEY")
+        self.api_key = api_key or os.environ.get("ARGOX_API_KEY")
         if not self.api_key:
             raise ArgoxError(
-                "no API key -- pass api_key=... or set AGENTTRAIL_API_KEY "
+                "no API key -- pass api_key=... or set ARGOX_API_KEY "
                 "(the same key `argox connect` writes for Claude Code)"
             )
-        self.api_base = (api_base or os.environ.get("AGENTTRAIL_API_BASE") or DEFAULT_API_BASE).rstrip("/")
+        self.api_base = (api_base or os.environ.get("ARGOX_API_BASE") or DEFAULT_API_BASE).rstrip("/")
         self.timeout = timeout
 
     def _post(self, path: str, body: dict) -> dict:
@@ -126,7 +126,7 @@ def _client() -> Client:
 
 def configure(api_key: str | None = None, api_base: str | None = None) -> None:
     """Set the module-level default client explicitly instead of relying
-    on AGENTTRAIL_API_KEY/AGENTTRAIL_API_BASE env vars."""
+    on ARGOX_API_KEY/ARGOX_API_BASE env vars."""
     global _default_client
     _default_client = Client(api_key=api_key, api_base=api_base)
 

@@ -1,5 +1,5 @@
 """
-AgentTrail - Hosted, multi-tenant backend (FastAPI).
+Argox - Hosted, multi-tenant backend (FastAPI).
 
 Consolidates what the local self-host path splits across two processes
 (hook_server.py's HTTP hook routes + ws_relay.py's WebSocket relay) into
@@ -53,7 +53,7 @@ CONFIRM_TIMEOUT_SECONDS = 110.0
 PORT = int(os.environ.get("PORT", "8080"))
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "*")  # tighten to the real Vercel/domain origin once deployed
 
-app = FastAPI(title="AgentTrail (hosted)")
+app = FastAPI(title="Argox (hosted)")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[FRONTEND_ORIGIN] if FRONTEND_ORIGIN != "*" else ["*"],
@@ -186,8 +186,8 @@ async def _decide(mapped_tool: str, target: str, params: dict, session_id: str, 
         session_id=session_id, project_id=project_id, publish_fn=publish,
     )
     if approved:
-        return "allow", "approved via AgentTrail dashboard"
-    return "deny", f"denied via AgentTrail dashboard (or timed out): {reason_text}"
+        return "allow", "approved via Argox dashboard"
+    return "deny", f"denied via Argox dashboard (or timed out): {reason_text}"
 
 
 @app.post("/hooks/pre-tool-use")

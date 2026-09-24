@@ -1,5 +1,5 @@
 """
-AgentTrail - Policy & Detection Engine
+Argox - Policy & Detection Engine
 Rule-based (no ML) so it's reliable under demo conditions.
 
 Responsibilities:

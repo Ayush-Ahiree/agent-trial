@@ -5,7 +5,7 @@ import { authHeaders } from "./lib/api.js";
 
 /**
  * Shared WS connection + localStorage persistence, used by both
- * EventFeed.jsx and AgentTrail.jsx -- they're two views over the exact
+ * EventFeed.jsx and Argox.jsx -- they're two views over the exact
  * same event stream, not two independent data sources.
  */
 
@@ -13,7 +13,7 @@ import { authHeaders } from "./lib/api.js";
 // the confirm-response endpoint (no separate relay process), see config.js.
 export const RELAY_HTTP_BASE = HOSTED ? API_BASE : "http://localhost:8766";
 export const MAX_EVENTS = 150;
-const STORAGE_KEY = "agenttrail_events_v1";
+const STORAGE_KEY = "argox_events_v1";
 
 function loadStoredEvents() {
   try {

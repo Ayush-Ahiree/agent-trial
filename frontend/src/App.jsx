@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import AgentTrail from "./AgentTrail";
+import Argox from "./Argox";
 import EventFeed from "./EventFeed";
 import PolicyEditor from "./PolicyEditor.jsx";
 import ConnectPanel from "./ConnectPanel.jsx";
@@ -8,7 +8,7 @@ import { T } from "./theme.jsx";
 import { API_BASE, HOSTED, WS_BASE } from "./lib/config.js";
 import { supabase } from "./lib/supabase.js";
 
-const CONNECT_SEEN_KEY = "agenttrail_connect_seen_v1";
+const CONNECT_SEEN_KEY = "argox_connect_seen_v1";
 
 export default function App() {
   // First-ever open lands on the setup wizard (nothing to see on the Feed
@@ -72,7 +72,7 @@ export default function App() {
       <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "10px 16px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
           <ShieldMark />
-          <span style={{ fontSize: 15, fontWeight: 500, letterSpacing: 0.1, color: T.ink, fontFamily: T.fontSerif }}>AgentTrail</span>
+          <span style={{ fontSize: 15, fontWeight: 500, letterSpacing: 0.1, color: T.ink, fontFamily: T.fontSerif }}>Argox</span>
         </div>
         <div style={{ display: "flex", gap: 4, background: T.surfaceRaised, borderRadius: 999, padding: 3 }}>
           <TabButton label="Connect" active={view === "connect"} onClick={() => setView("connect")} />
@@ -89,7 +89,7 @@ export default function App() {
       <div style={{ flex: 1, minHeight: 0 }}>
         {view === "connect" && <ConnectPanel project={project} apiKey={freshApiKey} onRegenerateKey={regenerateKey} />}
         {view === "feed" && <EventFeed wsUrl={wsUrl} authSession={session} />}
-        {view === "graph" && <AgentTrail wsUrl={wsUrl} />}
+        {view === "graph" && <Argox wsUrl={wsUrl} />}
         {view === "policy" && <PolicyEditor project={project} session={session} />}
       </div>
     </div>

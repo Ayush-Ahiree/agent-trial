@@ -1,5 +1,5 @@
 """
-AgentTrail CLI — turns the multi-terminal, hand-edited-JSON setup in
+Argox CLI — turns the multi-terminal, hand-edited-JSON setup in
 README.md into a few commands:
 
     python cli.py start                  # bring up relay + hook server
@@ -243,7 +243,7 @@ def cmd_connect(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="cli.py", description="AgentTrail setup CLI")
+    parser = argparse.ArgumentParser(prog="cli.py", description="Argox setup CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("start", help="start the relay + hook server").set_defaults(func=cmd_start)

@@ -1,5 +1,5 @@
 """
-AgentTrail - local alert webhook receiver (demo/dev use)
+Argox - local alert webhook receiver (demo/dev use)
 
 SigNoz's alertmanager POSTs alert payloads here instead of to a real
 mail server or an external service like webhook.site. Keeps the whole

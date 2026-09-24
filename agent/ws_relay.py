@@ -1,7 +1,7 @@
 """
-AgentTrail - WebSocket Relay
+Argox - WebSocket Relay
 Two roles in one process:
-  1. WebSocket server on :8765 -> the Agent Trail frontend connects here
+  1. WebSocket server on :8765 -> the Argox frontend connects here
      to receive live events.
   2. HTTP ingest endpoint on :8766 -> the agent process (a SEPARATE
      Python process from this one) POSTs events here.
@@ -150,7 +150,7 @@ class _IngestHandler(BaseHTTPRequestHandler):
 
 def _run_http_ingest():
     server = ThreadingHTTPServer(("localhost", 8766), _IngestHandler)
-    print("Agent Trail ingest listening on http://localhost:8766/event")
+    print("Argox ingest listening on http://localhost:8766/event")
     server.serve_forever()
 
 
@@ -163,7 +163,7 @@ def _run_server():
 
     async def main():
         async with websockets.serve(_handler, "localhost", 8765):
-            print("Agent Trail relay listening on ws://localhost:8765")
+            print("Argox relay listening on ws://localhost:8765")
             await asyncio.Future()  # run forever
 
     _LOOP.run_until_complete(main())

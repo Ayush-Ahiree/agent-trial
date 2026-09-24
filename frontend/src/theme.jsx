@@ -2,7 +2,7 @@ import React from "react";
 
 /**
  * Shared design tokens + icons + human-readable label maps, used by both
- * EventFeed.jsx and AgentTrail.jsx so the two tabs read as one system
+ * EventFeed.jsx and Argox.jsx so the two tabs read as one system
  * instead of drifting apart.
  *
  * Palette + type follows thebillow.ai: a warm "paper" surface (not a

@@ -1,5 +1,5 @@
 """
-AgentTrail - Postgres access for the hosted (multi-tenant) backend.
+Argox - Postgres access for the hosted (multi-tenant) backend.
 
 Talks directly to Supabase's Postgres via asyncpg using the service-role
 connection string (bypasses RLS -- every query here is already scoped to a

@@ -1,10 +1,10 @@
 """
-AgentTrail - Instrumentation Middleware
+Argox - Instrumentation Middleware
 
 Wraps every tool call in an OTel span, tags/propagates taint via span
 attributes (baggage-style manual propagation kept simple for hackathon
 reliability), runs the policy engine, and mirrors each event to the
-Agent Trail live panel via a WebSocket broadcaster.
+Argox live panel via a WebSocket broadcaster.
 
 Design choice: rather than reading spans back OUT of SigNoz for the live
 panel (adds a dependency on SigNoz query latency during the demo), we
@@ -23,7 +23,7 @@ from opentelemetry.trace import Status, StatusCode, NonRecordingSpan, set_span_i
 
 from policy import classify_content, evaluate_call, Decision, PolicyResult, Tag
 
-tracer = trace.get_tracer("agent-guardian")
+tracer = trace.get_tracer("argox")
 
 # Session-level taint state: which tags are "in scope" for the current
 # agent run, accumulated as tools produce tagged output. Simple dict
@@ -126,7 +126,7 @@ RELAY_INGEST_URL = "http://localhost:8766/event"
 
 
 def broadcast(event: dict):
-    """Send an event to the Agent Trail panel via the relay's HTTP ingest
+    """Send an event to the Argox panel via the relay's HTTP ingest
     endpoint. The relay runs as a SEPARATE process, so this must go over
     the network (HTTP), not a direct Python import/function call — module
     state isn't shared across processes."""

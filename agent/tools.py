@@ -1,5 +1,5 @@
 """
-AgentTrail - Tool Executors
+Argox - Tool Executors
 Every tool goes through traced_tool_call() so nothing bypasses
 instrumentation + policy enforcement.
 """
@@ -25,7 +25,7 @@ class PolicyPendingConfirm(Exception):
 
 def _cli_confirm(tool_name: str, target: str, reasons: list) -> bool:
     """Fallback pause/confirm UI: ask the human running the terminal.
-    Used when the AgentTrail panel/relay isn't reachable."""
+    Used when the Argox panel/relay isn't reachable."""
     print(f"\n⚠️  CONFIRMATION NEEDED: {tool_name} -> {target}")
     print(f"    reasons: {', '.join(reasons)}")
     resp = input("    Allow this action? [y/N]: ").strip().lower()
@@ -34,13 +34,13 @@ def _cli_confirm(tool_name: str, target: str, reasons: list) -> bool:
 
 def _web_confirm(tool_name: str, target: str, reasons: list, timeout: float = 120.0) -> bool:
     """Default pause/confirm UI: broadcast a confirm_request event (the
-    AgentTrail panel shows it as a banner with Approve/Deny buttons) and
+    Argox panel shows it as a banner with Approve/Deny buttons) and
     poll the relay for the panel's decision (instrumentation.web_confirm,
     shared with hook_server.py's Claude Code path). Falls back to the CLI
     prompt if the relay/panel isn't reachable at all, so the toy agent
     still works standalone without the panel running."""
     print(f"\n⚠️  CONFIRMATION NEEDED: {tool_name} -> {target} (reasons: {', '.join(reasons)})")
-    print(f"    Waiting for Approve/Deny in the AgentTrail panel ({timeout:.0f}s timeout)...")
+    print(f"    Waiting for Approve/Deny in the Argox panel ({timeout:.0f}s timeout)...")
 
     try:
         result = web_confirm(tool_name, target, reasons, timeout=timeout)

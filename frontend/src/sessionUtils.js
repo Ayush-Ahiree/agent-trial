@@ -1,6 +1,6 @@
 /**
  * Shared session-grouping logic used by both EventFeed.jsx (incident
- * cards) and AgentTrail.jsx (path graph), so "what counts as a session,
+ * cards) and Argox.jsx (path graph), so "what counts as a session,
  * what's its headline, what's its source" stays identical across tabs
  * instead of two components quietly disagreeing with each other.
  */

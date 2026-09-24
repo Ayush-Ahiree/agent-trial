@@ -1,4 +1,4 @@
--- AgentTrail hosted schema (Supabase/Postgres).
+-- Argox hosted schema (Supabase/Postgres).
 -- auth.users is managed by Supabase Auth; everything here hangs off it.
 
 create table if not exists projects (

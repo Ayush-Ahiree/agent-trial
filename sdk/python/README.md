@@ -1,9 +1,7 @@
 # argox — Python SDK
 
-Not published to PyPI yet -- install from source for now:
-
 ```bash
-pip install -e /path/to/agent-trial/sdk/python
+pip install argox
 ```
 
 For agents that aren't Claude Code (LangChain tools, OpenAI Agents SDK,

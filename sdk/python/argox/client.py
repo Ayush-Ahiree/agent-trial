@@ -20,7 +20,7 @@ import urllib.request
 import json as _json
 from dataclasses import dataclass
 
-DEFAULT_API_BASE = "https://api.argox.dev"  # placeholder until the real domain is live, same as cli/src/config.js
+DEFAULT_API_BASE = "https://argox-cflf.onrender.com"  # the real hosted backend (agent/main.py on Render); override with a custom domain once one exists, same as cli/src/config.js
 
 
 class ArgoxError(Exception):

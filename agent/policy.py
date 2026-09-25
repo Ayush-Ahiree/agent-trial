@@ -76,7 +76,8 @@ NETWORK_SHELL_RE = re.compile(
     r"\b(requests\.(get|post|put|patch)|urllib\.request|http\.client)\b",
     re.I,
 )
-SHELL_URL_RE = re.compile(r"(?:https?://|@)([a-zA-Z0-9.-]+)", re.I)
+SHELL_FULL_URL_RE = re.compile(r"[a-z][a-z0-9+.-]*://[^\s'\"<>|;&)]+", re.I)
+SHELL_USER_HOST_RE = re.compile(r"[A-Za-z0-9._-]+@([a-zA-Z0-9.-]+)")
 
 # Domains considered inside the trust boundary. Extend as needed for the demo.
 ALLOWLISTED_DOMAINS = {
@@ -303,10 +304,33 @@ def _shell_call_is_external(command: str) -> bool:
     internal, so this conservatively assumes external rather than
     silently trusting it -- same "a miss is worse than a false positive"
     bias ASSIGNED_SECRET_RE documents above."""
-    match = SHELL_URL_RE.search(command)
-    if not match:
+    hosts = _shell_command_hosts(command)
+    if not hosts:
         return True
-    return match.group(1) not in ALLOWLISTED_DOMAINS
+    # ANY non-allowlisted host makes the whole command external -- a
+    # command naming both localhost and evil.com still reaches evil.com.
+    return any(h not in ALLOWLISTED_DOMAINS for h in hosts)
+
+
+def _shell_command_hosts(command: str) -> list:
+    """Every destination host a shell command names. URLs go through
+    urlparse() rather than a bare regex capture so userinfo is stripped
+    correctly: `https://localhost@evil.com/` is a request to evil.com
+    (everything before `@` is credentials), but the old regex captured
+    "localhost" from it and treated the exfil as internal -- found
+    2026-09-25 via live bypass testing."""
+    hosts = []
+    for url in SHELL_FULL_URL_RE.findall(command):
+        try:
+            host = urlparse(url).hostname
+        except ValueError:
+            host = None
+        # Unparseable URL -> can't confirm internal, treat as external.
+        hosts.append(host or "")
+    # user@host (ssh/scp/rsync/sftp), outside of any URL already handled above
+    without_urls = SHELL_FULL_URL_RE.sub(" ", command)
+    hosts.extend(m.group(1) for m in SHELL_USER_HOST_RE.finditer(without_urls))
+    return hosts
 
 
 def _crosses_trust_boundary(tool_name: str, target: str) -> bool:

@@ -9,8 +9,8 @@ import { supabase } from "./lib/supabase.js";
  * Gates the rest of the app in App.jsx; only rendered when hosted config
  * is present (config.js's HOSTED flag).
  */
-export default function LoginPage() {
-  const [mode, setMode] = useState("login"); // login | signup | reset
+export default function LoginPage({ initialMode = "login", onBack }) {
+  const [mode, setMode] = useState(initialMode); // login | signup | reset
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState("idle"); // idle | busy | error | check-email
@@ -43,8 +43,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={{ height: "100%", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: T.page, fontFamily: T.font }}>
-      <div style={{ width: 340, padding: 28, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface }}>
+    <div style={{ minHeight: "100vh", width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, background: T.page, fontFamily: T.font }}>
+      <div style={{ width: 340, maxWidth: "calc(100% - 32px)", padding: 28, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface }}>
         <div style={{ fontSize: 20, fontWeight: 500, fontFamily: T.fontSerif, marginBottom: 4 }}>Argox</div>
         <div style={{ fontSize: 13, color: T.inkSecondary, marginBottom: 20 }}>
           {mode === "login" && "Sign in to your dashboard"}
@@ -94,6 +94,7 @@ export default function LoginPage() {
           )}
         </div>
       </div>
+      {onBack && <LinkButton onClick={onBack}>← Back to home</LinkButton>}
     </div>
   );
 }

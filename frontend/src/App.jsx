@@ -4,6 +4,7 @@ import EventFeed from "./EventFeed";
 import PolicyEditor from "./PolicyEditor.jsx";
 import ConnectPanel from "./ConnectPanel.jsx";
 import LoginPage from "./LoginPage.jsx";
+import Home from "./Home.jsx";
 import { T } from "./theme.jsx";
 import { API_BASE, HOSTED, WS_BASE } from "./lib/config.js";
 import { supabase } from "./lib/supabase.js";
@@ -20,6 +21,21 @@ export default function App() {
   const [session, setSession] = useState(HOSTED ? undefined : null);
   const [project, setProject] = useState(null);
   const [freshApiKey, setFreshApiKey] = useState(null);
+  // Signed-out visitors land on the public homepage at "/"; /login and
+  // /signup open the auth card (vercel.json rewrites them to index.html).
+  const [authRoute, setAuthRoute] = useState(() => authRouteFromPath(window.location.pathname));
+
+  useEffect(() => {
+    const onPop = () => setAuthRoute(authRouteFromPath(window.location.pathname));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const goTo = (route) => {
+    window.history.pushState(null, "", route === "home" ? "/" : `/${route}`);
+    setAuthRoute(route);
+    window.scrollTo(0, 0);
+  };
 
   useEffect(() => {
     if (view === "connect") localStorage.setItem(CONNECT_SEEN_KEY, "1");
@@ -59,7 +75,10 @@ export default function App() {
     return <Centered>Loading…</Centered>;
   }
   if (HOSTED && !session) {
-    return <LoginPage />;
+    if (authRoute === "home") {
+      return <Home onSignIn={() => goTo("login")} onGetStarted={() => goTo("signup")} />;
+    }
+    return <LoginPage key={authRoute} initialMode={authRoute} onBack={() => goTo("home")} />;
   }
 
   const wsUrl =
@@ -114,6 +133,12 @@ async function resolveProject(token) {
   });
   const created = await createRes.json();
   return { project: created, apiKey: created.api_key };
+}
+
+function authRouteFromPath(path) {
+  if (path.startsWith("/signup")) return "signup";
+  if (path.startsWith("/login")) return "login";
+  return "home";
 }
 
 function Centered({ children }) {

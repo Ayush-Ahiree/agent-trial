@@ -200,3 +200,13 @@ export function IconClaude({ size = 14, color = "currentColor" }) {
     </svg>
   );
 }
+
+export function IconLock({ size = 14, color = "currentColor", style }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" style={style}>
+      <rect x="3" y="7" width="10" height="7.5" rx="1.5" fill="none" stroke={color} strokeWidth="1.4" />
+      <path d="M5.3 7V5a2.7 2.7 0 015.4 0v2" fill="none" stroke={color} strokeWidth="1.4" />
+      <circle cx="8" cy="10.6" r="1" fill={color} />
+    </svg>
+  );
+}

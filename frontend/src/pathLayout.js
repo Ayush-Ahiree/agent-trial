@@ -15,6 +15,23 @@ export function buildTrail(session) {
     ? [...session.events].filter((e) => e.type === "tool_call").sort((a, b) => (a.ts || 0) - (b.ts || 0))
     : [];
 
+  // A tool_call's own `tags` are the session's CUMULATIVE taint at that
+  // moment, not what that step touched -- so once anything sensitive is
+  // read, every later step carries the tags. What a step itself brought in
+  // comes from the taint_update event the backend sends after a read; pair
+  // each one with the latest matching call (same tool + target) before it.
+  const introduced = new Map();
+  if (session) {
+    const updates = session.events.filter((e) => e.type === "taint_update" && (e.new_tags || []).length);
+    for (const u of updates) {
+      let match = null;
+      for (const c of toolCalls) {
+        if (c.tool === u.tool && c.target === u.target && (c.ts || 0) <= (u.ts || 0)) match = c;
+      }
+      if (match) introduced.set(match, [...new Set([...(introduced.get(match) || []), ...u.new_tags])]);
+    }
+  }
+
   const nodes = [{ id: "start", label: session ? sourceLabel(session.source) : "Start", isStart: true }];
   const links = [];
   toolCalls.forEach((event, i) => {
@@ -25,6 +42,7 @@ export function buildTrail(session) {
       event,
       severity: eventSeverity(event),
       step: i + 1,
+      introducedTags: introduced.get(event) || [],
     });
     links.push({ source: i === 0 ? "start" : `step-${i - 1}`, target: nodeId });
   });
@@ -45,6 +63,11 @@ function shortLabel(event) {
     } catch {
       return target.slice(0, 24);
     }
+  }
+  if (event.tool === "run_shell") {
+    // commands aren't paths: keep the start (the verb), not the text after the last "/"
+    const cmd = target.trim().replace(/\s+/g, " ");
+    return cmd.length > 30 ? `${cmd.slice(0, 29)}…` : cmd;
   }
   const parts = target.split("/");
   return (parts[parts.length - 1] || target).slice(0, 24);

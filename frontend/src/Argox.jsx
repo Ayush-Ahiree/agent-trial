@@ -1,24 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import ForceGraph2D from "react-force-graph-2d";
+import React, { useEffect, useMemo, useState } from "react";
 import { T, STATUS, TAG_LABELS, humanReason, eventSeverity } from "./theme.jsx";
 import { groupBySession, timeAgo } from "./sessionUtils.js";
 import { useEventStream } from "./useEventStream.js";
-import { buildTrail, layoutSerpentine } from "./pathLayout.js";
+import { buildTrail } from "./pathLayout.js";
+import IsoTrail, { CATEGORIES } from "./IsoTrail.jsx";
 
 /**
- * Live path-tracing view. This used to be a hub-and-spoke star (every
- * action linked straight back to one center "AGENT" node) -- that's not
- * a path, it's just "everything touched," with no way to tell what
- * happened after what. Now each session is an actual chain: step 1 -> 2
+ * Live path-tracing view. Each session is an actual chain: step 1 -> 2
  * -> 3 in call order, so you can ask Claude Code to "fix the taskbar
  * issue" and watch the trail extend live, file by file, tool by tool,
- * until it's done.
- *
- * A straight line (top-down or left-right) runs off the edge of the
- * view once a session racks up more than a handful of steps, so
- * positions are laid out in a serpentine ("S"/boustrophedon) grid sized
- * to the actual container width instead (see pathLayout.js) -- long
- * sessions wrap back and forth and stay in frame.
+ * until it's done. Rendered as an isometric 3D scene (see IsoTrail.jsx).
  *
  * Defaults to auto-following the most recently active session (so a
  * brand-new task takes over the view the moment it starts); clicking an
@@ -26,121 +17,42 @@ import { buildTrail, layoutSerpentine } from "./pathLayout.js";
  * "Follow live" again.
  */
 
-const START_COLOR = T.coolInk;
-
 export default function Argox({ wsUrl = "ws://localhost:8765" }) {
   const { events, connected } = useEventStream(wsUrl);
   const [pinnedSession, setPinnedSession] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
-  const fgRef = useRef();
-  const wrapRef = useRef();
-  const [size, setSize] = useState({ width: 0, height: 0 });
+  const [focusCat, setFocusCat] = useState(null);
 
   const sessions = useMemo(() => groupBySession(events), [events]);
   const activeSessionId = pinnedSession || (sessions[0] && sessions[0].sessionId);
   const activeSession = sessions.find((s) => s.sessionId === activeSessionId) || null;
   const following = !pinnedSession;
 
-  const { nodes, links } = useMemo(() => {
-    const trail = buildTrail(activeSession);
-    layoutSerpentine(trail.nodes, size.width || 900, { colSpacing: 110, rowSpacing: 90 });
-    return trail;
-  }, [activeSession, size.width]);
-
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect;
-      setSize({ width, height });
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  // keep the whole trail in frame as it grows
-  useEffect(() => {
-    if (fgRef.current && nodes.length > 1) {
-      const t = setTimeout(() => fgRef.current.zoomToFit(400, 40), 250);
-      return () => clearTimeout(t);
-    }
-  }, [nodes.length, size.width]);
+  const trail = useMemo(() => buildTrail(activeSession), [activeSession]);
+  const nodes = trail.nodes;
 
   // deselect a node that no longer exists (switched session)
   useEffect(() => {
     if (selectedNode && !nodes.some((n) => n.id === selectedNode.id)) setSelectedNode(null);
   }, [nodes, selectedNode]);
 
-  const nodeCanvasObject = (node, ctx, globalScale) => {
-    const isStart = node.id === "start";
-    const color = isStart ? START_COLOR : STATUS[node.severity].color;
-    const radius = isStart ? 8 : 9;
-    const isSelected = selectedNode && selectedNode.id === node.id;
+  useEffect(() => setFocusCat(null), [activeSessionId]);
 
-    if (!isStart && node.severity === "critical") {
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, radius + 5, 0, 2 * Math.PI);
-      ctx.strokeStyle = T.critical;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-    if (isSelected) {
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, radius + 4, 0, 2 * Math.PI);
-      ctx.strokeStyle = T.ink;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-
-    ctx.beginPath();
-    ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
-    ctx.fillStyle = color;
-    ctx.fill();
-
-    if (!isStart) {
-      ctx.fillStyle = T.onAccent;
-      ctx.font = `700 ${9 / globalScale}px ${T.font}`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(String(node.step), node.x, node.y + 0.5);
-    }
-
-    const fontSize = 10.5 / globalScale;
-    ctx.font = `${fontSize}px ${T.font}`;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = T.inkSecondary;
-    ctx.fillText(node.label, node.x + radius + 5, node.y);
-  };
+  const focusCategory = CATEGORIES.find((c) => c.id === focusCat) || null;
+  const focusSteps = focusCategory ? nodes.filter((n) => n.event && focusCategory.match(n)) : [];
 
   return (
     <div style={{ display: "flex", height: "100%", width: "100%", background: T.page, color: T.ink, overflow: "hidden", fontFamily: T.font }}>
-      <div ref={wrapRef} style={{ flex: "2 1 0%", minWidth: 0, position: "relative", overflow: "hidden" }}>
-        {nodes.length <= 1 && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: T.inkMuted, textAlign: "center", padding: 20 }}>
-            Waiting for a session to trace — ask Claude Code to do something, or run the toy agent.
-          </div>
-        )}
-        <ForceGraph2D
-          ref={fgRef}
-          width={size.width || undefined}
-          height={size.height || undefined}
-          graphData={{ nodes, links }}
-          nodeCanvasObject={nodeCanvasObject}
-          nodeLabel={() => ""}
-          linkColor={() => "rgba(23,20,14,0.18)"}
-          linkWidth={1.5}
-          linkDirectionalParticles={2}
-          linkDirectionalParticleWidth={2.5}
-          linkDirectionalParticleSpeed={0.006}
-          linkDirectionalParticleColor={(link) => {
-            const t = link.target;
-            const severity = typeof t === "object" ? t.severity : null;
-            return severity ? STATUS[severity].color : T.good;
-          }}
-          onNodeClick={(node) => (node.event ? setSelectedNode(node) : setSelectedNode(null))}
-          backgroundColor={T.page}
-          cooldownTicks={100}
+      <div style={{ flex: "2 1 0%", minWidth: 0, position: "relative", overflow: "hidden" }}>
+        <IsoTrail
+          trail={trail}
+          sessionKey={activeSessionId || "none"}
+          connected={connected}
+          live={following && !!activeSession}
+          selectedId={selectedNode ? selectedNode.id : null}
+          onSelect={(node) => setSelectedNode(node && node.event ? node : null)}
+          focusCat={focusCat}
+          onFocusCat={setFocusCat}
         />
       </div>
 
@@ -178,10 +90,21 @@ export default function Argox({ wsUrl = "ws://localhost:8765" }) {
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: 12 }}>
+          {focusCategory && (
+            <ResourceSteps
+              category={focusCategory}
+              steps={focusSteps}
+              selectedId={selectedNode ? selectedNode.id : null}
+              onPick={setSelectedNode}
+              onClose={() => setFocusCat(null)}
+            />
+          )}
           {selectedNode && selectedNode.event ? (
             <NodeDetail event={selectedNode.event} step={selectedNode.step} />
           ) : (
-            <div style={{ fontSize: 12, opacity: 0.5, textAlign: "center", marginTop: 20 }}>Click a step in the path for details.</div>
+            !focusCategory && (
+              <div style={{ fontSize: 12, opacity: 0.5, textAlign: "center", marginTop: 20 }}>Click a step in the path, or a resource block, for details.</div>
+            )
           )}
         </div>
       </div>
@@ -215,6 +138,53 @@ function SessionPill({ session, active, isLive, onClick }) {
       {isLive && (
         <span style={{ fontSize: 9, color: T.good, fontWeight: 700, flexShrink: 0, letterSpacing: 0.3 }}>● LIVE</span>
       )}
+    </div>
+  );
+}
+
+function ResourceSteps({ category, steps, selectedId, onPick, onClose }) {
+  return (
+    <div style={{ marginBottom: 14, paddingBottom: 12, borderBottom: `1px solid ${T.border}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ width: 24, height: 24, borderRadius: 6, background: T.ink, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+          <category.Icon size={14} color="#fff" />
+        </span>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>{category.label}</div>
+        <div style={{ fontSize: 11, color: T.inkMuted }}>
+          {steps.length} step{steps.length === 1 ? "" : "s"}
+        </div>
+        <button onClick={onClose} style={{ marginLeft: "auto", fontSize: 11, color: T.inkMuted, background: "none", border: "none", cursor: "pointer" }}>
+          Clear ✕
+        </button>
+      </div>
+      {steps.length === 0 && <div style={{ fontSize: 12, opacity: 0.5 }}>Nothing in this session touched {category.label.toLowerCase()}.</div>}
+      {steps.map((n) => {
+        const status = STATUS[n.severity];
+        const active = selectedId === n.id;
+        return (
+          <div
+            key={n.id}
+            onClick={() => onPick(n)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 8px",
+              marginBottom: 3,
+              borderRadius: 8,
+              cursor: "pointer",
+              background: active ? T.surfaceRaised : "transparent",
+              border: `1px solid ${active ? status.color + "55" : "transparent"}`,
+            }}
+          >
+            <span style={{ minWidth: 20, height: 20, borderRadius: 10, background: status.color, color: T.onAccent, fontSize: 10.5, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+              {n.step}
+            </span>
+            <span style={{ fontSize: 12, fontFamily: T.fontMono, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: 1 }}>{n.label}</span>
+            <status.Icon size={13} color={status.color} />
+          </div>
+        );
+      })}
     </div>
   );
 }

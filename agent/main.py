@@ -44,6 +44,7 @@ from hook_server import (
     TARGET_KEY_MAP,
     TOOL_NAME_MAP,
     _extract_target,
+    _read_text_file,
     _stringify_output,
 )
 from instrumentation import precheck, record_confirm_resolution, record_tool_output, web_confirm
@@ -236,11 +237,7 @@ async def post_tool_use(payload: dict, project: dict = Depends(require_api_key_p
         file_path = tool_input.get("file_path", "")
         if file_path:
             full_path = os.path.join(payload.get("cwd", ""), file_path)
-            try:
-                with open(full_path, "r", errors="ignore") as f:
-                    output_text = f.read()
-            except OSError:
-                pass
+            output_text = _read_text_file(full_path)
 
     publish = _make_publisher(project_id)
     await run_in_threadpool(

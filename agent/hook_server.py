@@ -79,6 +79,22 @@ def _extract_target(tool_name: str, tool_input: dict) -> str:
     return json.dumps(tool_input)[:200]
 
 
+def _read_text_file(path: str) -> str:
+    """Contents of `path` for classification, or "" for a binary file.
+    Decoding an image/archive as text with errors="ignore" produces junk
+    whose random digit runs match PHONE_RE -- found 2026-10-11: every PNG
+    screenshot the agent read got tagged PII and tainted the session. A NUL
+    byte in the first 8KB is the usual binary heuristic (same as git's)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(8192)
+            if b"\0" in head:
+                return ""
+            return (head + f.read()).decode("utf-8", errors="ignore")
+    except OSError:
+        return ""
+
+
 def _stringify_output(tool_output) -> str:
     if isinstance(tool_output, str):
         return tool_output
@@ -266,11 +282,7 @@ class HookHandler(BaseHTTPRequestHandler):
             file_path = tool_input.get("file_path", "")
             if file_path:
                 full_path = os.path.join(payload.get("cwd", ""), file_path)
-                try:
-                    with open(full_path, "r", errors="ignore") as f:
-                        output_text = f.read()
-                except OSError:
-                    pass
+                output_text = _read_text_file(full_path)
 
         record_tool_output(mapped_tool, target, output_text, source_hint=target, session_id=session_id)
 

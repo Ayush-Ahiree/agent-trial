@@ -32,7 +32,10 @@ class Decision(str, Enum):
 
 # --- Detection patterns (hackathon-scope: regex/keyword, not ML) ---
 
-EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+# The lookbehind keeps a match from starting mid-token or right after "/":
+# `scheme://user@host` is URL credentials (userinfo), not an email address --
+# without it, `https://localhost@evil.com` in a code comment tagged the file PII.
+EMAIL_RE = re.compile(r"(?<![a-zA-Z0-9._%+\-/])[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 PHONE_RE = re.compile(r"\b(\+?\d{1,3}[-.\s]?)?\(?\d{3,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}\b")
 # Common secret-shaped tokens: API keys, bearer tokens, AWS-style keys, generic hex/base64 secrets
 SECRET_RE = re.compile(
@@ -51,12 +54,20 @@ SECRET_RE = re.compile(
 # enough to match) since a missed real secret is worse than an over-tagged
 # one. The value charset excludes `$`/`{`/`}` so `${DB_PASSWORD}`-style
 # indirection (referencing another secret, not holding one) doesn't match.
+#
+# The trailing lookahead rejects two code-shaped false positives: a value
+# that's really a function call (`SECRET_RE = re.compile(...)`,
+# `api_key=os.environ.get(...)`) and a doc example truncated with "..."
+# (`AWS_SECRET_ACCESS_KEY=wJalr...`). It can't be dodged by backtracking:
+# the value must end at a character outside its own charset that isn't "(".
 ASSIGNED_SECRET_RE = re.compile(
     r"(?i)\b[a-z0-9_-]*(?:password|passwd|pwd|secret|api[_-]?key|"
     r"access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|token)"
-    r"[a-z0-9_-]*\s*[:=]\s*['\"]?[A-Za-z0-9/+_\-\.]{8,}['\"]?"
+    r"[a-z0-9_-]*\s*[:=]\s*['\"]?(?![A-Za-z0-9/+_\-\.]*\.\.\.)[A-Za-z0-9/+_\-\.]{8,}(?![A-Za-z0-9/+_\-\.(])['\"]?"
 )
-INTERNAL_MARKER_RE = re.compile(r"(confidential|internal[\s\-]?use[\s\-]?only|do not distribute)", re.I)
+# A marker sitting directly against "|" is one option of a pattern list
+# (e.g. this very regex's source), not an actual marked document.
+INTERNAL_MARKER_RE = re.compile(r"(?<!\|)(confidential|internal[\s\-]?use[\s\-]?only|do not distribute)(?!\|)", re.I)
 
 DANGEROUS_SHELL_RE = re.compile(
     r"(rm\s+-rf\s+/|curl\s+.*\|\s*sh|wget\s+.*\|\s*sh|:\(\)\{.*\};:|"
